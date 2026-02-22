@@ -10,8 +10,10 @@ class PatchUnPatchMHSA(nn.Module):
     self.in_projection = nn.Conv2d(input_dim, embed_dim, (1,1))
     self.self_attn = nn.MultiheadAttention(embed_dim*patch_size*patch_size, embed_dim, batch_first=True)
     self.out_projection = nn.Conv2d(embed_dim, output_dim, (1,1))
-    self.activation_fn = nn.PReLU()
+    self.activation_fn = nn.GELU()
     self.patch_size = patch_size
+    self.rms_norm_attn = nn.RMSNorm(embed_dim*patch_size*patch_size )
+    self.rms_norm_out = nn.RMSNorm(output_dim)
   
   @jaxtyped(typechecker=beartype)
   def patchify(self, inp_feats: Float[torch.Tensor, "batch channels height width"]):
@@ -42,8 +44,8 @@ class PatchUnPatchMHSA(nn.Module):
     b, c, h, w = x.shape
     x = self.patchify(x)
     x, _ = self.self_attn(x, x, x)
+    x = self.rms_norm_attn(x)
     x = self.activation_fn(x)
     x = self.unpatchify(x, h, w, c)
     x = self.out_projection(x)
-    x = self.activation_fn(x)
-    return x + feats
+    return self.activation_fn(self.rms_norm_out((x+feats).permute(0, 2, 3, 1)).permute(0, 3, 1, 2))

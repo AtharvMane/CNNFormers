@@ -28,7 +28,7 @@ class TransBasicBlock(BasicBlock):
         dilation=dilation,
         norm_layer=norm_layer
     )
-    
+    self.relu = nn.SiLU()
     self.self_attn = PatchUnPatchMHSA(4, planes, planes if planes<=128 else planes//2, planes)
   
   def forward(self, x):
