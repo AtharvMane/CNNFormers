@@ -1,5 +1,6 @@
 from typing import Optional, Any, Callable
 
+from torch import dropout
 import torch.nn as nn
 from model.attention import PatchUnPatchMHSA
 
@@ -17,6 +18,8 @@ class TransBasicBlock(BasicBlock):
         base_width: int = 64,
         dilation: int = 1,
         norm_layer: Optional[Callable[..., nn.Module]] = None,
+        dropout: int = 0.3,
+        drop_key: int = 0.1
     ):
     super(TransBasicBlock, self).__init__(
         inplanes=inplanes,
@@ -29,7 +32,7 @@ class TransBasicBlock(BasicBlock):
         norm_layer=norm_layer
     )
     self.relu = nn.SiLU()
-    self.self_attn = PatchUnPatchMHSA(4, planes, planes if planes<=128 else planes//2, planes)
+    self.self_attn = PatchUnPatchMHSA(8, planes, 8*planes, planes, drop_key=drop_key, dropout=dropout)
   
   def forward(self, x):
     x = super().forward(x)
