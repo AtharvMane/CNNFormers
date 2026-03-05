@@ -4,6 +4,7 @@ import evaluate
 from transformers import TrainingArguments, Trainer
 
 from model.transcnn import TransResNet
+import torchvision.transforms as transforms
 
 
 # Metrics
@@ -46,24 +47,36 @@ if __name__=="__main__":
 	# Apply preprocessing
 	train_ds = ds['train'].with_transform(lambda x: apply_transforms(x, train_transforms))
 	val_ds = ds['validation'].with_transform(lambda x: apply_transforms(x, val_transforms))
+  
+  model = TransResNet([2, 2, 2, 2], num_classes=num_labels)
+  
+  training_args = TrainingArguments(
+    output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128",
+    per_device_train_batch_size=128,
+    per_device_eval_batch_size=64,
+    eval_strategy="epoch",            # Run evaluation every epoch
+    save_strategy="epoch",            # Save checkpoint every epoch
+    report_to="wandb",
+    num_train_epochs=300,             # Total number of epochs (use more for real training)
+    learning_rate=1e-4,
+    load_best_model_at_end=True,      # Load the best model at the end
+    metric_for_best_model="accuracy", # Use accuracy to find the best model
+    logging_dir='./logs',
+    logging_steps=50,
+    warmup_steps=100,
+    run_name="cnnformer_bigger_batch_Run_essence_of_imagenet_with_dropout",
+    weight_decay=1e-4,
+    remove_unused_columns=False,
+    # optim="adamw_torch_xla",
+    bf16=True
+  )
+  
+  trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_ds,
+    eval_dataset=val_ds,
+    compute_metrics=compute_metrics,
+  )
 
-	training_args = TrainingArguments(
-		output_dir="./checkpoints",
-		per_device_train_batch_size=8,
-		per_device_eval_batch_size=8,
-		eval_strategy="epoch",     # Run evaluation every epoch
-		save_strategy="epoch",            # Save checkpoint every epoch
-		report_to="wandb",
-		num_train_epochs=12,               # Total number of epochs (use more for real training)
-		learning_rate=1e-3,
-		load_best_model_at_end=True,      # Load the best model at the end
-		metric_for_best_model="accuracy", # Use accuracy to find the best model
-		logging_dir='./logs',
-		logging_steps=50,
-		warmup_steps=100,
-		run_name="cnnformer_bigger_batch_Run_essence_of_imageneti_local",
-		# This is CRUCIAL. By default, Trainer removes columns
-		# not used by the model's forward() signature.
-		# We need to keep the 'label' column for our wrapper's logic.
-		remove_unused_columns=False,
-	)
+  trainer.train()
