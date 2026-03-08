@@ -7,7 +7,7 @@ import torch
 from model.transcnn import TransResNet
 import torchvision.transforms as transforms
 from safetensors.torch import load_file
-
+import numpy as np
 # Metrics
 accuracy_metric = evaluate.load("accuracy")
 def compute_metrics(eval_pred):
