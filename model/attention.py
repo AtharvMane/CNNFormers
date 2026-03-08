@@ -53,7 +53,6 @@ class PatchUnPatchMHSA(nn.Module):
     self.patch_size = patch_size
     self.rms_norm_attn = RMSNorm2d(embed_dim)
     self.rms_norm_out = RMSNorm2d(output_dim)
-  
 
   def forward(self, feats):
     x_q=self.in_projection(feats)
