@@ -14,11 +14,12 @@ class TransResNet(nn.Module):
     self.num_classes = num_classes
     self.config = PretrainedConfig(num_labels=self.num_classes)
     self.loss_fct = nn.CrossEntropyLoss()
+
   def forward(self, pixel_values, labels=None):
     logits = self.model(pixel_values)
     loss = None
     if labels is not None:
-      loss = self.loss_fct(logits.view(-1, self.num_classes), labels.view(-1))
+      loss = self.loss_fct(logits.view(-1, self.num_classes).contiguous(), labels.view(-1).contiguous())
     return ImageClassifierOutput(
             loss=loss,
             logits=logits,

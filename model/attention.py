@@ -3,6 +3,7 @@ import torch.nn as nn
 
 from jaxtyping import jaxtyped, Float
 from beartype import beartype
+from model.rms_norm import RMSNorm2d
 
 class PatchUnPatchMHSA(nn.Module):
   def __init__(self, patch_size: int, input_dim: int, embed_dim: int, output_dim: int, drop_key:int, dropout: float):
@@ -28,7 +29,7 @@ class PatchUnPatchMHSA(nn.Module):
     )
 
 
-    self.self_attn = nn.MultiheadAttention(embed_dim, num_heads = int(embed_dim/64), batch_first=True, dropout=dropout)
+    self.self_attn = nn.MultiheadAttention(embed_dim, num_heads = int(embed_dim/64), batch_first=True)
 
     self.upscaler = nn.Sequential(
         nn.ConvTranspose2d(
@@ -48,30 +49,28 @@ class PatchUnPatchMHSA(nn.Module):
         )
     )
 
-    self.dropkey = drop_key
     self.activation_fn = nn.GELU()
     self.patch_size = patch_size
-    self.rms_norm_attn = nn.RMSNorm(embed_dim)
-    self.rms_norm_out = nn.RMSNorm(output_dim)
+    self.rms_norm_attn = RMSNorm2d(embed_dim)
+    self.rms_norm_out = RMSNorm2d(output_dim)
   
+
   def forward(self, feats):
     x_q=self.in_projection(feats)
     b, c, h, w = x_q.shape
 
-    x = self.activation_fn(x_q).flatten(2).permute(0,2,1)
-    drop_key_mask = (torch.rand(x.shape[:-1], device=feats.device)<self.dropkey)
-    dmsa_mask = torch.eye(x.shape[1], device=x.device, dtype=drop_key_mask.dtype)
+    x = self.activation_fn(x_q).flatten(2).permute(0,2,1).contiguous()
+    dmsa_mask = torch.eye(x.shape[1], device=feats.device)
     x, _ = self.self_attn(
       x,x,x,
-      # key_padding_mask=drop_key_mask,
       attn_mask=dmsa_mask
     )
 
-    x = x.permute(0, 2, 1).reshape(b, c, h, w)
-    x = self.activation_fn(self.rms_norm_attn((x+x_q).permute(0,2,3,1))).permute(0,3,1,2)
+    x = x.permute(0, 2, 1).reshape(b, c, h, w).contiguous()
+    x = self.activation_fn(self.rms_norm_attn((x+x_q)))
     x = self.upscaler(x)
     x = self.activation_fn(x)
-    return self.activation_fn(self.rms_norm_out((x+feats).permute(0,2,3,1))).permute(0,3,1,2)
+    return self.activation_fn(self.rms_norm_out((x+feats)))
 
 
     # b, c, h, w = x.shape

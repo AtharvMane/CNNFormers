@@ -1,13 +1,14 @@
 from typing import Optional, Any, Callable
 
-from torch import dropout
+import torch
 import torch.nn as nn
 from model.attention import PatchUnPatchMHSA
 
 from torchvision.models.resnet import BasicBlock
 from torchvision.models.resnet import Bottleneck
 
-class TransBasicBlock(BasicBlock):
+class TransBasicBlock(nn.Module):
+  expansion: int = 1
   def __init__(
         self,
         inplanes: int,
@@ -21,7 +22,8 @@ class TransBasicBlock(BasicBlock):
         dropout: int = 0.3,
         drop_key: int = 0.1
     ):
-    super(TransBasicBlock, self).__init__(
+    super(TransBasicBlock, self).__init__()
+    self.resnet_basic_block = BasicBlock(
         inplanes=inplanes,
         planes=planes,
         stride=stride,
@@ -31,10 +33,10 @@ class TransBasicBlock(BasicBlock):
         dilation=dilation,
         norm_layer=norm_layer
     )
-    self.relu = nn.SiLU()
+    self.resnet_basic_block.relu = nn.SiLU()
     self.self_attn = PatchUnPatchMHSA(8, planes, 8*planes, planes, drop_key=drop_key, dropout=dropout)
-  
+
   def forward(self, x):
-    x = super().forward(x)
+    x = self.resnet_basic_block(x)
     x = self.self_attn(x)
     return x
