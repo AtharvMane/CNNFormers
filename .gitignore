@@ -7,3 +7,5 @@ data/
 checkpoints_essence_of_imagenet_with_conv_unconv_former/
 checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128/
 checkpoints_essence_of_imagenet_with_dropout/
+checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/
+torch_compile_cache/

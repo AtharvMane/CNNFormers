@@ -57,8 +57,8 @@ if __name__=="__main__":
     val_ds = ds['validation'].with_transform(lambda x: apply_transforms(x, val_transforms))
 
     model = TransResNet([2, 2, 2, 2], num_classes=num_labels)
-    state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/model_new.safetensors")
-    model.load_state_dict(state_dict)
+    state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128/checkpoint-4000/model.safetensors")
+    # model.load_state_dict(state_dict)
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128",
@@ -82,7 +82,7 @@ if __name__=="__main__":
       torch_compile_backend="inductor",
       torch_compile_mode="reduce-overhead",
       tf32=False,
-      optim="adamw_torch"
+      optim="adamw_torch_xla"
     )
     
     trainer = Trainer(
