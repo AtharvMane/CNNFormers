@@ -9,8 +9,6 @@ import torchvision.transforms as transforms
 from safetensors.torch import load_file
 import numpy as np
 
-# import os
-# os.environ["TORCHINDUCTOR_CACHE_DIR"] = "./torch_compile_cache"
 
 # Metrics
 accuracy_metric = evaluate.load("accuracy")
@@ -42,7 +40,7 @@ if __name__=="__main__":
     # print(f"Found {num_labels} labels: {labels_list}")
 
     train_transforms = transforms.Compose([
-        transforms.RandAugment(num_ops = 4),
+        transforms.RandAugment(num_ops = 6),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -57,11 +55,18 @@ if __name__=="__main__":
     val_ds = ds['validation'].with_transform(lambda x: apply_transforms(x, val_transforms))
 
     model = TransResNet([2, 2, 2, 2], num_classes=num_labels)
-    state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128/checkpoint-4000/model.safetensors")
+    # state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/model_new.safetensors")
     # model.load_state_dict(state_dict)
-  
+    model._keys_to_ignore_on_save = None
+    # compiled_model = torch.compile(
+    #   model, 
+    #   backend="openxla", 
+    #   mode="default",    # Change to "max-autotune" for final runs
+    #   dynamic=True       # Crucial for dynamic shapes!
+    # )
+
     training_args = TrainingArguments(
-      output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128",
+      output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs256",
       per_device_train_batch_size=256,
       per_device_eval_batch_size=64,
       eval_strategy="epoch",            # Run evaluation every epoch
@@ -78,11 +83,12 @@ if __name__=="__main__":
       weight_decay=1e-4,
       remove_unused_columns=False,
       bf16=True,
-      torch_compile=True,
-      torch_compile_backend="inductor",
-      torch_compile_mode="reduce-overhead",
+      # torch_compile=True,
+      # torch_compile_backend="openxla",
+      # torch_compile_mode="default",
       tf32=False,
-      optim="adamw_torch_xla"
+      optim="adamw_torch_xla",
+      dataloader_num_workers=12
     )
     
     trainer = Trainer(
@@ -94,5 +100,5 @@ if __name__=="__main__":
     )
 
     trainer.train(
-      # resume_from_checkpoint="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128/checkpoint-4000/"
+      resume_from_checkpoint="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs256/checkpoint-42000/"
     )
