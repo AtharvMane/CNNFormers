@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from jaxtyping import jaxtyped, Float
 from beartype import beartype
-from model.rms_norm import RMSNorm2d
+from model.modules.rms_norm import RMSNorm2d
 
 class PatchUnPatchMHSA(nn.Module):
   def __init__(
