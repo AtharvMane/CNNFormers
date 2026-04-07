@@ -6,7 +6,7 @@ from transformers.modeling_outputs import ImageClassifierOutput, BackboneOutput
 from transformers import PreTrainedModel
 from transformers.backbone_utils import BackboneMixin
 
-from model.attention import PatchUnPatchMHSA
+from model.modules.attention import PatchUnPatchMHSA
 from model.config.cnnformer_config import CNNFormerConfig
 
 
