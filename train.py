@@ -5,6 +5,7 @@ from transformers import TrainingArguments, Trainer
 import torch
 
 from model.transcnn import TransResNet
+from model.config.cnnformer_config import CNNFormerConfig
 import torchvision.transforms as transforms
 from safetensors.torch import load_file
 import numpy as np
@@ -56,14 +57,24 @@ if __name__=="__main__":
     train_ds = ds['train'].with_transform(lambda x: apply_transforms(x, train_transforms))
     val_ds = ds['validation'].with_transform(lambda x: apply_transforms(x, val_transforms))
 
-    model = TransResNet([2, 2, 2, 2], num_classes=num_labels)
-    state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/model_new.safetensors")
-    model.load_state_dict(state_dict)
+    config = CNNFormerConfig(
+        depths=[2,2,2,2,2],
+        hidden_sizes = [64, 128, 256, 512, 1024],
+        hidden_act = "silu",
+        attention_embed_dim=384,
+        upscaler_kernel_size=5,
+        dropout=0.3,
+        dims_per_multi_attention_head=64,
+        output_features=['stem_out', 'layer_1_out', 'layer_3_out', 'layer_5_out']
+    )
+    model = TransResNet(config=config)
+    # state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/model_new.safetensors")
+    # model.load_state_dict(state_dict)
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128",
-      per_device_train_batch_size=256,
-      per_device_eval_batch_size=64,
+      per_device_train_batch_size=2,
+      per_device_eval_batch_size=2,
       eval_strategy="epoch",            # Run evaluation every epoch
       save_strategy="epoch",            # Save checkpoint every epoch
       report_to="wandb",
@@ -78,9 +89,9 @@ if __name__=="__main__":
       weight_decay=1e-4,
       remove_unused_columns=False,
       bf16=True,
-      torch_compile=True,
-      torch_compile_backend="inductor",
-      torch_compile_mode="reduce-overhead",
+      # torch_compile=True,
+      # torch_compile_backend="inductor",
+      # torch_compile_mode="reduce-overhead",
       tf32=False,
       optim="adamw_torch"
     )
