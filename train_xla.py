@@ -4,7 +4,7 @@ import evaluate
 from transformers import TrainingArguments, Trainer
 import torch
 
-from model.transcnn import TransResNet
+from model.cnnformer_resnet import TransResNet
 import torchvision.transforms as transforms
 from safetensors.torch import load_file
 import numpy as np

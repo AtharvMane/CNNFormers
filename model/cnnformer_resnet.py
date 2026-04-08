@@ -16,12 +16,12 @@ class CNNFormerPretrainedModel(PreTrainedModel):
   main_input_name = "pixel_values"
   input_modalities = ("image", )
 
-class TransResNet(CNNFormerPretrainedModel, BackboneMixin):
+class CNNFormerResNet(CNNFormerPretrainedModel, BackboneMixin):
   def __init__(
       self,
       config: CNNFormerConfig
     ):
-    super(TransResNet, self).__init__(config = config)
+    super(CNNFormerResNet, self).__init__(config = config)
     self.config = config
     resnet = ResNetModel(config)
     self.stem = resnet.embedder.embedder
