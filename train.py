@@ -4,7 +4,7 @@ import evaluate
 from transformers import TrainingArguments, Trainer
 import torch
 
-from model.transcnn import TransResNet
+from model.cnnformer_resnet import CNNFormerResNet
 from model.config.cnnformer_config import CNNFormerConfig
 import torchvision.transforms as transforms
 from safetensors.torch import load_file
@@ -67,7 +67,7 @@ if __name__=="__main__":
         dims_per_multi_attention_head=64,
         output_features=['stem_out', 'layer_1_out', 'layer_3_out', 'layer_5_out']
     )
-    model = TransResNet(config=config)
+    model = CNNFormerResNet(config=config)
     # state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/model_new.safetensors")
     # model.load_state_dict(state_dict)
   
