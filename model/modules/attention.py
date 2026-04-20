@@ -80,7 +80,7 @@ class PatchUnPatchMHSA(nn.Module):
       cls_token: Float[torch.Tensor, "batch_size {self.embed_dim}"]
     )->tuple[
       Float[torch.Tensor, "batch_size C_in H_in W_in"],
-      Float[torch.Tensor, "batch_size H_in*W_in/4+1 H_in*W_in/4+1"],
+      Float[torch.Tensor, "batch_size H_in*W_in*4/({self.patch_size}*{self.patch_size})+1 H_in*W_in*4/({self.patch_size}*{self.patch_size})+1"],
       Float[torch.Tensor, "batch_size {self.embed_dim}"]
     ]:
     x_q = self.get_inprojection(feats)
