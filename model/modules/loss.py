@@ -5,8 +5,6 @@ from torch.nn import functional as F
 from jaxtyping import jaxtyped, Float, Bool, Int
 from beartype import beartype as typechecker
 
-from matplotlib import pyplot as plt
-
 
 class SSLImgProcUtils:
     @staticmethod
@@ -50,7 +48,7 @@ class SSLImgProcUtils:
         transformed_coords[:,:,1] = transformed_coords[:,:,1]*2/(height*scale_factor)-1
         return transformed_coords[:,:,None,:]
     
-
+    @staticmethod
     @jaxtyped(typechecker=typechecker)
     @torch.no_grad()
     def get_masks(
@@ -58,26 +56,78 @@ class SSLImgProcUtils:
             transformed_coords_2: Float[torch.Tensor, "batch_size num_points 1 2"]
     )->tuple[
         Bool[torch.Tensor, "batch_size num_points 1"],
-        Bool[torch.Tensor, "batch_size 1 num_points"],
-        Bool[torch.Tensor, "batch_size num_points"]
+        Bool[torch.Tensor, "batch_size num_points 1"]
     ]:
-        mask1 = (transformed_coords_1[:,:,:,0].abs()<1)*(transformed_coords_1[:,:,:,1].abs()<1)
-        mask2 = (transformed_coords_2[:,:,:,0].abs()<1)*(transformed_coords_2[:,:,:,1].abs()<1)
-        combined_mask = mask1*mask2
-        mask2 = mask2.transpose(1,2)
-        return mask1, mask2, ~combined_mask[:,:,0]
+        mask1 = (transformed_coords_1[:,:,:,0].abs()<1)&(transformed_coords_1[:,:,:,1].abs()<1)
+        mask2 = (transformed_coords_2[:,:,:,0].abs()<1)&(transformed_coords_2[:,:,:,1].abs()<1)
+        return ~mask1, ~mask2
+
+
+
+class InfoNCELoss(nn.Module):
+    def __init__(self, temperature: float):
+        super().__init__()
+        self.temperature = temperature
+        self.ce_loss = nn.CrossEntropyLoss()
+
+    @jaxtyped(typechecker=typechecker)
+    def forward(
+        self,
+        embeddings1: Float[torch.Tensor, "batch_size num_embeddings embed_dim"],
+        embeddings2: Float[torch.Tensor, "batch_size num_embeddings embed_dim"],
+        invalid_embeddings_mask1: Bool[torch.Tensor, "batch_size num_embeddings 1"],
+        invalid_embeddings_mask2: Bool[torch.Tensor, "batch_size num_embeddings 1"],
+    ):
+        
+        ignore_mask = (invalid_embeddings_mask1 | invalid_embeddings_mask2).squeeze(dim=2)
+        labels = self.get_labels(
+            ignore_mask=ignore_mask,
+            num_labels = embeddings1.shape[1],
+            device = ignore_mask.device,
+        )
+
+        if (labels==-100).all():
+            return torch.tensor(0.0, device=embeddings1.device, dtype=embeddings1.dtype)
+
+
+        scores = torch.bmm(embeddings1, embeddings2.transpose(1,2))/self.temperature
+        scores_ab = scores.clone()
+        scores_ab = scores_ab.masked_fill_(
+            invalid_embeddings_mask1, -1e9
+        ).masked_fill_(
+            invalid_embeddings_mask2.transpose(1,2), -1e9
+        )
+
+        loss = self.ce_loss(scores_ab, labels)
+        loss = loss + self.ce_loss(scores_ab.transpose(1,2), labels)
+
+        return loss
+
+    @jaxtyped(typechecker=typechecker)
+    @torch.no_grad()
+    def get_labels(
+            self,
+            ignore_mask: Bool[torch.Tensor, "batch_size {num_labels}"],
+            num_labels:int,
+            device: torch.device
+        )->Int[torch.Tensor, "batch_size {num_labels}"]:
+        labels = torch.arange(
+            num_labels, device=device
+        )[None].repeat(ignore_mask.shape[0],1)
+        labels.masked_fill_(ignore_mask, -100)
+        return labels
 
 
 
 class FeatureComparisonLoss(nn.Module):
     def __init__(
             self,
+            temperature: float,
             scale_factor:int = 2,
         ):
         super().__init__()
         self.scale_factor=scale_factor
-        self.temperature = 0.07
-        self.ce_loss = nn.CrossEntropyLoss()
+        self.info_nce_loss = InfoNCELoss(temperature=temperature)
     
     @jaxtyped(typechecker=typechecker)
     def forward(
@@ -87,7 +137,7 @@ class FeatureComparisonLoss(nn.Module):
         transform_matrix_1: Float[torch.Tensor, "batch_size 3 3"],
         transform_matrix_2: Float[torch.Tensor, "batch_size 3 3"]
     ):
-        B, N, H1, W1 = features_1.shape
+        B, _, H1, W1 = features_1.shape
         coords = SSLImgProcUtils.get_coords(
             scale_factor=self.scale_factor,
             dtype=features_1.dtype,
@@ -99,18 +149,18 @@ class FeatureComparisonLoss(nn.Module):
 
         transformed_coords_1 = SSLImgProcUtils.transform_coords(
             coords,
-            transform_matrix_1,
-            W1,
-            H1,
-            self.scale_factor
+            transformation_matrix=transform_matrix_1,
+            height=H1,
+            width=W1,
+            scale_factor=self.scale_factor
         )
 
         transformed_coords_2 = SSLImgProcUtils.transform_coords(
             coords,
-            transform_matrix_2,
-            W1,
-            H1,
-            self.scale_factor
+            transformation_matrix=transform_matrix_2,
+            height=H1,
+            width=W1,
+            scale_factor=self.scale_factor
         )
 
 
@@ -118,25 +168,18 @@ class FeatureComparisonLoss(nn.Module):
         sampled_features_2 = self.sample_grids(transformed_coords_2, features_2)
 
 
-        mask1, mask2, ignore_mask = SSLImgProcUtils.get_masks(
+        mask1, mask2 = SSLImgProcUtils.get_masks(
             transformed_coords_1=transformed_coords_1,
             transformed_coords_2=transformed_coords_2
         )
 
-        labels = self.get_labels(
-            combined_mask=ignore_mask,
-            num_labels = H1*W1,
-            device = ignore_mask.device,
+        loss = self.info_nce_loss(
+            embeddings1 = sampled_features_1,
+            embeddings2 = sampled_features_2,
+            invalid_embeddings_mask1 = mask1,
+            invalid_embeddings_mask2 = mask2
         )
 
-        if (labels==-100).all():
-            return torch.tensor(0.0, device=labels.device, dtype=features_1.dtype)
-
-        scores = torch.bmm(sampled_features_1.transpose(1,2), sampled_features_2)/self.temperature
-        scores_ab = scores.clone()
-        scores_ab = scores_ab.masked_fill_(~mask1, -1e9).masked_fill_(~mask2, -1e9)
-        loss = self.ce_loss(scores_ab, labels)
-        loss += self.ce_loss(scores_ab.transpose(1,2), labels)
         return loss
 
     @jaxtyped(typechecker=typechecker)
@@ -144,22 +187,6 @@ class FeatureComparisonLoss(nn.Module):
         self,
         coords: Float[torch.Tensor, "batch_size num_points 1 2"],
         features: Float[torch.Tensor,  "batch_size C H W"]
-    )->Float[torch.Tensor, "batch_size C num_points"]:
+    )->Float[torch.Tensor, "batch_size num_points C"]:
         grid_sample = F.grid_sample(features, coords, align_corners=False)[:,:,:,0]
-        return F.normalize(grid_sample, dim = 1)
-
-
-    @jaxtyped(typechecker=typechecker)
-    @torch.no_grad()
-    def get_labels(
-            self,
-            combined_mask: Bool[torch.Tensor, "batch_size {num_labels}"],
-            num_labels:int,
-            device: torch.device
-        )->Int[torch.Tensor, "batch_size {num_labels}"]:
-        labels = torch.arange(
-            num_labels, device=device
-        )[None].repeat(combined_mask.shape[0],1)
-        labels.masked_fill_(combined_mask, -100)
-        return labels
-
+        return F.normalize(grid_sample, dim = 1).transpose(1,2)
