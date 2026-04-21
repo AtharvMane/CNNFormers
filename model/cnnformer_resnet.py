@@ -56,7 +56,7 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
 
     self.stem = resnet.embedder.embedder
     self.self_attn_stem = PatchUnPatchMHSA(
-      patch_size=4,
+      patch_size=config.attention_patch_size,
       input_dim=resnet.embedder.embedder.convolution.out_channels, 
       embed_dim=config.attention_embed_dim,
       dropout=config.dropout,
@@ -72,7 +72,7 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
       self.resnet_stages.append(resnet_stage)
       self.attention_stages.append(
         PatchUnPatchMHSA(
-          patch_size=4,
+          patch_size=config.attention_patch_size,
           input_dim=self.config.hidden_sizes[idx],
           embed_dim=config.attention_embed_dim,
           dropout=config.dropout,
