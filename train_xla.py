@@ -56,6 +56,7 @@ if __name__=="__main__":
         depths=[2,2,2,2],
         hidden_sizes = [64, 128, 256, 512],
         hidden_act = "silu",
+        layer_type = "basic",
 
         attention_patch_size=8,
         attention_embed_dim=384,
@@ -67,8 +68,8 @@ if __name__=="__main__":
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_essence_of_imagenet_ssl_bf16",
-      per_device_train_batch_size=128,
-      per_device_eval_batch_size=64,
+      per_device_train_batch_size=16,
+      per_device_eval_batch_size=16,
       eval_strategy="epoch",            # Run evaluation every epoch
       save_strategy="epoch",            # Save checkpoint every epoch
       report_to="wandb",
