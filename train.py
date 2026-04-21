@@ -68,9 +68,9 @@ if __name__=="__main__":
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128",
-      per_device_train_batch_size=16,
-      per_device_eval_batch_size=16,
-      eval_strategy="epoch",            # Run evaluation every epoch
+      per_device_train_batch_size=24,
+      per_device_eval_batch_size=24,
+      eval_strategy="no",            # Run evaluation every epoch
       save_strategy="epoch",            # Save checkpoint every epoch
       report_to="wandb",
       num_train_epochs=300,             # Total number of epochs (use more for real training)
