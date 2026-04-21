@@ -301,7 +301,6 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     student_outs = self.backbone_student(pixel_values_1.to(curr_dtype), output_hidden_states=True)
     teacher_outs = self.teacher_forward(pixel_values_2.to(curr_dtype))
 
-    print(student_outs.last_global_hidden_state.shape)
     loss = self.global_loss(
       student_outs.last_global_hidden_state[None],
       teacher_outs.last_global_hidden_state[None],
