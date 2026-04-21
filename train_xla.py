@@ -4,7 +4,8 @@ import evaluate
 from transformers import TrainingArguments, Trainer
 import torch
 
-from model.cnnformer_resnet import TransResNet
+from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
+from model.config.cnnformer_config import CNNFormerConfig
 import torchvision.transforms as transforms
 from safetensors.torch import load_file
 import numpy as np
@@ -22,7 +23,7 @@ def compute_metrics(eval_pred):
 
 # function to apply transforms
 def apply_transforms(examples, transform):
-    examples['pixel_values'] = [train_transforms(image.convert('RGB')) for image in examples['image']]
+    examples['pixel_values'] = [transform(image.convert('RGB')) for image in examples['image']]
     examples['labels'] = examples.pop('label')
     del examples['features']
     del examples["image"]
@@ -40,34 +41,32 @@ if __name__=="__main__":
     # print(f"Found {num_labels} labels: {labels_list}")
 
     train_transforms = transforms.Compose([
-        transforms.RandAugment(num_ops = 6),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     val_transforms = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     # Apply preprocessing
     train_ds = ds['train'].with_transform(lambda x: apply_transforms(x, train_transforms))
     val_ds = ds['validation'].with_transform(lambda x: apply_transforms(x, val_transforms))
 
-    model = TransResNet([2, 2, 2, 2], num_classes=num_labels)
-    # state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/model_new.safetensors")
-    # model.load_state_dict(state_dict)
-    model._keys_to_ignore_on_save = None
-    # compiled_model = torch.compile(
-    #   model, 
-    #   backend="openxla", 
-    #   mode="default",    # Change to "max-autotune" for final runs
-    #   dynamic=True       # Crucial for dynamic shapes!
-    # )
-
+    config = CNNFormerConfig(
+        depths=[2,2,2,2,2],
+        hidden_sizes = [64, 128, 256, 512, 1024],
+        hidden_act = "silu",
+        attention_embed_dim=384,
+        upscaler_kernel_size=5,
+        dropout=0.3,
+        dims_per_multi_attention_head=64,
+        output_features=['stem_out', 'layer_1_out', 'layer_3_out', 'layer_5_out'],
+    )
+    model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
+  
     training_args = TrainingArguments(
-      output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs256",
-      per_device_train_batch_size=256,
+      output_dir="./checkpoints_essence_of_imagenet_ssl_bf16",
+      per_device_train_batch_size=128,
       per_device_eval_batch_size=64,
       eval_strategy="epoch",            # Run evaluation every epoch
       save_strategy="epoch",            # Save checkpoint every epoch
@@ -100,5 +99,4 @@ if __name__=="__main__":
     )
 
     trainer.train(
-      resume_from_checkpoint="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs256/checkpoint-42000/"
     )
