@@ -56,6 +56,8 @@ if __name__=="__main__":
         depths=[2,2,2,2,2],
         hidden_sizes = [64, 128, 256, 512, 1024],
         hidden_act = "silu",
+
+        attention_patch_size=8
         attention_embed_dim=384,
         upscaler_kernel_size=5,
         dropout=0.3,
