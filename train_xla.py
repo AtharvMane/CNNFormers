@@ -53,16 +53,15 @@ if __name__=="__main__":
     val_ds = ds['validation'].with_transform(lambda x: apply_transforms(x, val_transforms))
 
     config = CNNFormerConfig(
-        depths=[2,2,2,2,2],
-        hidden_sizes = [64, 128, 256, 512, 1024],
+        depths=[2,2,2,2],
+        hidden_sizes = [64, 128, 256, 512],
         hidden_act = "silu",
 
-        attention_patch_size=8
+        attention_patch_size=8,
         attention_embed_dim=384,
         upscaler_kernel_size=5,
         dropout=0.3,
         dims_per_multi_attention_head=64,
-        output_features=['stem_out', 'layer_1_out', 'layer_3_out', 'layer_5_out'],
     )
     model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   

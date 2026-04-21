@@ -53,8 +53,8 @@ if __name__=="__main__":
     val_ds = ds['validation'].with_transform(lambda x: apply_transforms(x, val_transforms))
 
     config = CNNFormerConfig(
-        depths=[2,2,2,2,2],
-        hidden_sizes = [64, 128, 256, 512, 1024],
+        depths=[2,2,2,2],
+        hidden_sizes = [64, 128, 256, 512],
         hidden_act = "silu",
 
         attention_patch_size=8,
