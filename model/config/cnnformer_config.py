@@ -5,8 +5,12 @@ class CNNFormerConfig(ResNetConfig):
     def __init__(
         self,
         # Model Arch Hyperparams
+        ## ResNet Params
         depths: list[int] | tuple[int, ...] = (3, 4, 6, 3),
         hidden_sizes: list[int] | tuple[int, ...] = (256, 512, 1024, 2048),
+
+        ## PatchUnpatchMHSA Params
+        attention_patch_size: int = 8,
         attention_embed_dim: int = 384,
         upscaler_kernel_size: int = 4,
         dropout: float = 30,
@@ -54,6 +58,7 @@ class CNNFormerConfig(ResNetConfig):
     ):
         assert len(hidden_sizes)==len(depths), "Recieved unequal number of depths and hidden_sizes. Specify a hidden size for reach element in depth"
         super().__init__(depths=depths, hidden_sizes=hidden_sizes, **kwargs)
+        self.attention_patch_size = attention_patch_size
         self.attention_embed_dim = attention_embed_dim
         self.upscaler_kernel_size = upscaler_kernel_size
         self.dropout = dropout
