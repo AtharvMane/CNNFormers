@@ -4,14 +4,12 @@ import evaluate
 from transformers import TrainingArguments, Trainer
 import torch
 
-from model.cnnformer_resnet import CNNFormerResNet
+from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
 from model.config.cnnformer_config import CNNFormerConfig
 import torchvision.transforms as transforms
 from safetensors.torch import load_file
 import numpy as np
 
-# import os
-# os.environ["TORCHINDUCTOR_CACHE_DIR"] = "./torch_compile_cache"
 
 # Metrics
 accuracy_metric = evaluate.load("accuracy")
@@ -25,7 +23,7 @@ def compute_metrics(eval_pred):
 
 # function to apply transforms
 def apply_transforms(examples, transform):
-    examples['pixel_values'] = [train_transforms(image.convert('RGB')) for image in examples['image']]
+    examples['pixel_values'] = [transform(image.convert('RGB')) for image in examples['image']]
     examples['labels'] = examples.pop('label')
     del examples['features']
     del examples["image"]
@@ -43,14 +41,11 @@ if __name__=="__main__":
     # print(f"Found {num_labels} labels: {labels_list}")
 
     train_transforms = transforms.Compose([
-        transforms.RandAugment(num_ops = 4),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     val_transforms = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     # Apply preprocessing
@@ -65,11 +60,9 @@ if __name__=="__main__":
         upscaler_kernel_size=5,
         dropout=0.3,
         dims_per_multi_attention_head=64,
-        output_features=['stem_out', 'layer_1_out', 'layer_3_out', 'layer_5_out']
+        output_features=['stem_out', 'layer_1_out', 'layer_3_out', 'layer_5_out'],
     )
-    model = CNNFormerResNet(config=config)
-    # state_dict = load_file("./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/model_new.safetensors")
-    # model.load_state_dict(state_dict)
+    model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128",

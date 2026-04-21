@@ -75,28 +75,34 @@ class InfoNCELoss(nn.Module):
         self,
         embeddings1: Float[torch.Tensor, "batch_size num_embeddings embed_dim"],
         embeddings2: Float[torch.Tensor, "batch_size num_embeddings embed_dim"],
-        invalid_embeddings_mask1: Bool[torch.Tensor, "batch_size num_embeddings 1"],
-        invalid_embeddings_mask2: Bool[torch.Tensor, "batch_size num_embeddings 1"],
+        invalid_embeddings_mask1: Bool[torch.Tensor, "batch_size num_embeddings 1"] | None = None,
+        invalid_embeddings_mask2: Bool[torch.Tensor, "batch_size num_embeddings 1"] | None = None,
     ):
         
-        ignore_mask = (invalid_embeddings_mask1 | invalid_embeddings_mask2).squeeze(dim=2)
+        if invalid_embeddings_mask1 is None or invalid_embeddings_mask2 is None:
+            ignore_mask = None
+        else:
+            ignore_mask = (invalid_embeddings_mask1 | invalid_embeddings_mask2).squeeze(dim=2)
+
         labels = self.get_labels(
+            batch_size = embeddings1.shape[0],
             ignore_mask=ignore_mask,
             num_labels = embeddings1.shape[1],
-            device = ignore_mask.device,
+            device = embeddings1.device,
         )
 
         if (labels==-100).all():
-            return torch.tensor(0.0, device=embeddings1.device, dtype=embeddings1.dtype)
-
+            return 0.0*embeddings1.sum()
 
         scores = torch.bmm(embeddings1, embeddings2.transpose(1,2))/self.temperature
         scores_ab = scores.clone()
-        scores_ab = scores_ab.masked_fill_(
-            invalid_embeddings_mask1, -1e9
-        ).masked_fill_(
-            invalid_embeddings_mask2.transpose(1,2), -1e9
-        )
+
+        if invalid_embeddings_mask1 is not None or invalid_embeddings_mask2 is not None:
+            scores_ab = scores_ab.masked_fill_(
+                invalid_embeddings_mask1, -1e9
+            ).masked_fill_(
+                invalid_embeddings_mask2.transpose(1,2), -1e9
+            )
 
         loss = self.ce_loss(scores_ab, labels)
         loss = loss + self.ce_loss(scores_ab.transpose(1,2), labels)
@@ -107,14 +113,16 @@ class InfoNCELoss(nn.Module):
     @torch.no_grad()
     def get_labels(
             self,
-            ignore_mask: Bool[torch.Tensor, "batch_size {num_labels}"],
             num_labels:int,
-            device: torch.device
+            batch_size : int,
+            device: torch.device,
+            ignore_mask: Bool[torch.Tensor, "batch_size {num_labels}"] | None
         )->Int[torch.Tensor, "batch_size {num_labels}"]:
         labels = torch.arange(
             num_labels, device=device
-        )[None].repeat(ignore_mask.shape[0],1)
-        labels.masked_fill_(ignore_mask, -100)
+        )[None].repeat(batch_size,1)
+        if ignore_mask is not None:
+            labels.masked_fill_(ignore_mask, -100)
         return labels
 
 
