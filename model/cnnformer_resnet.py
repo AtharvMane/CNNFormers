@@ -8,15 +8,16 @@ from transformers import PreTrainedModel
 from transformers.backbone_utils import BackboneMixin
 
 from model.modules.attention import PatchUnPatchMHSA
+from model.modules.rms_norm import RMSNorm2d
 from model.config.cnnformer_config import CNNFormerConfig
+from model.modules.loss import FeatureComparisonLoss, InfoNCELoss
 
 from dataclasses import dataclass
 
 from jaxtyping import Float, jaxtyped
 from beartype import beartype as typechecker
 
-from model.modules.loss import FeatureComparisonLoss
-
+import kornia.augmentation as K
 
 @dataclass
 class DenseWithGlobalOutput(ModelOutput):
@@ -26,6 +27,12 @@ class DenseWithGlobalOutput(ModelOutput):
   global_hidden_states: torch.Tensor = None
   dense_attentions: torch.Tensor = None
 
+
+@dataclass
+class DenseContrastiveOutput(ModelOutput):
+  loss: torch.FloatTensor | None = None
+  teacher_output: DenseWithGlobalOutput | None = None
+  student_output: DenseWithGlobalOutput | None = None
 
 
 class CNNFormerPretrainedModel(PreTrainedModel):
@@ -54,7 +61,8 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
       embed_dim=config.attention_embed_dim,
       dropout=config.dropout,
       upscaler_kernel_size=config.upscaler_kernel_size,
-      dims_per_head=config.dims_per_multi_attention_head
+      dims_per_head=config.dims_per_multi_attention_head,
+      is_dmsa=config.attention_is_dmsa
     )
 
     self.resnet_stages = nn.ModuleList([])
@@ -69,9 +77,30 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
           embed_dim=config.attention_embed_dim,
           dropout=config.dropout,
           upscaler_kernel_size=config.upscaler_kernel_size,
-          dims_per_head=config.dims_per_multi_attention_head
+          dims_per_head=config.dims_per_multi_attention_head,
+          is_dmsa=config.attention_is_dmsa
         )
       )
+    
+    self.cnn_global_projector = nn.Sequential(
+      nn.AdaptiveAvgPool2d((1,1)),
+      nn.Conv2d(
+        in_channels=config.hidden_sizes[-1],
+        out_channels=config.attention_embed_dim,
+        kernel_size=(1,1)
+      ),
+      RMSNorm2d(
+        num_channels=config.attention_embed_dim
+      ),
+      nn.GELU()
+    )
+
+    self.global_projector = nn.Sequential(
+      nn.Linear(
+        in_features=2*config.attention_embed_dim,
+        out_features=config.attention_embed_dim,
+      ),
+    )
 
   @jaxtyped(typechecker=typechecker)
   def forward(
@@ -98,11 +127,19 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
       hidden_states+=(hidden_state,)
       attentions+=(attention,)
 
+    cnn_cls_token = self.cnn_global_projector(
+      hidden_states[-1]
+    ).squeeze()
+    
+    global_cls_token = torch.cat([cnn_cls_token, cls_token], dim = 1)
+
+    global_cls_token = self.global_projector(global_cls_token)
+
     if not return_dict:
       return (hidden_states, attentions)
 
     return DenseWithGlobalOutput(
-      last_global_hidden_state = cls_token,
+      last_global_hidden_state = global_cls_token,
       last_dense_hidden_state = hidden_states[-1],
       dense_hidden_states = hidden_states if output_hidden_states else None,
       dense_attentions = attentions if output_attentions else None
@@ -114,6 +151,7 @@ class CNNFormerResNetBackBone(CNNFormerPretrainedModel, BackboneMixin):
     super(CNNFormerResNetBackBone, self).__init__(config)
     self.backbone = ResNetModel(config)
 
+  @jaxtyped(typechecker=typechecker)
   def forward(
       self,
       pixel_values: Float[torch.Tensor, "batch_size C H W"],
@@ -126,7 +164,6 @@ class CNNFormerResNetBackBone(CNNFormerPretrainedModel, BackboneMixin):
       output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
     output_attentions = output_attentions if output_attentions is not None else self.config.output_hidden_states
-
 
     backbone_out = self.backbone(
       pixel_values,
@@ -147,4 +184,148 @@ class CNNFormerResNetBackBone(CNNFormerPretrainedModel, BackboneMixin):
       hidden_states = backbone_out.hidden_states if output_hidden_states else None,
       attentions = backbone_out.attentions if output_attentions else None
     )
+
+class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedModel):
+  def __init__(
+    self,
+    config: CNNFormerConfig
+  ):
+    super(CNNFormerResNetForPixelLevelRepresentationModeling, self).__init__(config = config)
+
+    self.backbone_student = CNNFormerResNetModel(config)
+    self.backbone_teacher = CNNFormerResNetModel(config)
+
+    self.teacher_projectors = nn.ModuleList([])
+    self.student_projectors = nn.ModuleList([])
+
+    self.losses = nn.ModuleList([])
+
+    scales = [2,4] if self.config.downsample_in_first_stage else [2,2]
+    for i in range(len(self.config.depths)-1):
+      scales.append(2**(i+2))
+
+    self.transform = K.AugmentationSequential(
+        K.RandomHorizontalFlip(p=config.horizontal_flip_probability),
+        K.RandomRotation(config.random_rotation_max_angle_degrees),
+        K.RandomResizedCrop(
+          size = config.random_resize_crop_size,
+          scale = config.random_resize_crop_scale,
+          p = config.random_resize_crop_probability
+        ),
+        K.ColorJitter(
+          brightness = config.color_jitter_brightness,
+          contrast = config.color_jitter_contrast,
+          saturation = config.color_jitter_saturation,
+          hue = config.color_jitter_hue,
+          p = config.color_jitter_probability
+        ),
+        K.RandomGrayscale(
+          p=config.random_grayscale_probability,
+          rgb_weights=torch.tensor(config.normalize_mean)
+        ),
+        K.RandomGaussianBlur(
+          kernel_size=config.gaussian_blur_kernel_size,
+          sigma=config.gaussian_blur_sigma,
+          p=config.gaussian_blur_probability
+        ),
+        K.RandomSolarize(p=config.solarize_probability),
+        K.Normalize(mean=config.normalize_mean, std=config.normalize_std),
+        data_keys=['image']
+      )
+
+    for i in range(config.num_loss_stages):
+      self.student_projectors.append(
+        nn.Conv2d(
+          config.hidden_sizes[-i-1],
+          config.dense_ssl_projection_dim,
+          kernel_size=(1,1),
+          stride=(1,1)
+        )
+      )
+      self.teacher_projectors.append(
+        nn.Conv2d(
+          config.hidden_sizes[-i-1],
+          config.dense_ssl_projection_dim,
+          kernel_size=(1,1),
+          stride=(1,1)
+        )
+      )
+
+      self.losses.append(
+        FeatureComparisonLoss(scale_factor=scales[-i-1], temperature=config.loss_temperature)
+      )
+    
+    self.global_loss = InfoNCELoss(temperature=config.loss_temperature)
+    self.initialize_teacher()
+
+  @torch.no_grad()
+  def initialize_teacher(self):
+    for parameter_teacher, parameter_student in zip(self.backbone_teacher.parameters(), self.backbone_student.parameters()):
+      parameter_teacher.data = parameter_student.data
+      parameter_teacher.requires_grad_(False)
+    
+    for parameter_teacher, parameter_student in zip(self.teacher_projectors.parameters(), self.student_projectors.parameters()):
+      parameter_teacher.data = parameter_student.data
+      parameter_teacher.requires_grad_(False)
+  
+  @torch.no_grad()
+  def update_teacher(self):
+    for parameter_teacher, parameter_student in zip(self.backbone_teacher.parameters(), self.backbone_student.parameters()):
+      parameter_teacher.data = (
+        self.config.teacher_training_lambda*parameter_student.data+(1-self.config.teacher_training_lambda)*parameter_teacher.data
+      )
+    
+    for parameter_teacher, parameter_student in zip(self.teacher_projectors.parameters(), self.student_projectors.parameters()):
+      parameter_teacher.data = (
+        self.config.teacher_training_lambda*parameter_student.data+(1-self.config.teacher_training_lambda)*parameter_teacher.data
+      )
+
+  @torch.no_grad()
+  def teacher_forward(self, pixel_values):
+    return self.backbone_teacher(pixel_values, output_hidden_states=True)
+
+  def forward(
+      self,
+      pixel_values,
+      labels = None
+  )->DenseContrastiveOutput:
+    curr_dtype = pixel_values.dtype
+    self.update_teacher()
+
+    with torch.autocast(device_type=pixel_values.device.type, dtype=torch.float32, enabled=False):
+      pixel_values_1 = self.transform(pixel_values)
+      pix_transform_1 = self.transform.transform_matrix
+      pixel_values_2 = self.transform(pixel_values)
+      pix_transform_2 = self.transform.transform_matrix
+
+    student_outs = self.backbone_student(pixel_values_1.to(curr_dtype), output_hidden_states=True)
+    teacher_outs = self.teacher_forward(pixel_values_2.to(curr_dtype))
+
+    print(student_outs.last_global_hidden_state.shape)
+    loss = self.global_loss(
+      student_outs.last_global_hidden_state[None],
+      teacher_outs.last_global_hidden_state[None],
+
+    )
+
+    for idx, (loss_fn, student_projector, teacher_projector) in enumerate(
+      zip(self.losses, self.student_projectors, self.teacher_projectors)
+    ): 
+      student_features = student_projector(student_outs.dense_hidden_states[-idx-1])
+      teacher_features = teacher_projector(teacher_outs.dense_hidden_states[-idx-1])
+      loss+=loss_fn(
+        features_1 = student_features,
+        features_2 = teacher_features,
+        transform_matrix_1 = pix_transform_1,
+        transform_matrix_2 = pix_transform_2
+      )
+
+    return DenseContrastiveOutput(
+      loss=loss,
+      student_output=student_outs,
+      teacher_output=teacher_outs
+    )
+
+    
+
 
