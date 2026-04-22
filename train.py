@@ -1,23 +1,9 @@
 import datasets
-import transformers
-import evaluate
 from transformers import TrainingArguments, Trainer
-import torch
 
 from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
 from model.config.cnnformer_config import CNNFormerConfig
 import torchvision.transforms as transforms
-from safetensors.torch import load_file
-import numpy as np
-
-
-# Metrics
-accuracy_metric = evaluate.load("accuracy")
-def compute_metrics(eval_pred):
-    """Called by the Trainer to compute metrics."""
-    logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
-    return accuracy_metric.compute(predictions=predictions, references=labels)
 
 
 
@@ -38,7 +24,6 @@ if __name__=="__main__":
     # Get label info
     labels_list = ds['train'].features['label'].names
     num_labels = len(labels_list)
-    # print(f"Found {num_labels} labels: {labels_list}")
 
     train_transforms = transforms.Compose([
         transforms.ToTensor(),
@@ -67,31 +52,25 @@ if __name__=="__main__":
     model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
-      output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128",
+      output_dir="./checkpoints_cnn_former_ssl",
       per_device_train_batch_size=40,
       per_device_eval_batch_size=40,
-      eval_strategy="no",            # Run evaluation every epoch
+      eval_strategy="no",
       do_eval=False,
       save_strategy="steps",
-      # Specify the frequency (e.g., save every 500 steps)
       save_steps=1000,
-      # Optional: limit the total number of checkpoints to save disk space
-      save_total_limit=3,           # Save checkpoint every epoch
+      save_total_limit=3,
       report_to="wandb",
-      num_train_epochs=300,             # Total number of epochs (use more for real training)
+      num_train_epochs=300,
       learning_rate=1e-4,
       load_best_model_at_end=False,      # Load the best model at the end
-      metric_for_best_model="accuracy", # Use accuracy to find the best model
       logging_dir='./logs',
       logging_steps=50,
       warmup_steps=100,
-      run_name="cnnformer_bigger_batch_Run_essence_of_imagenet_with_dropout",
+      run_name="cnnformer_ssl",
       weight_decay=1e-4,
       remove_unused_columns=False,
       bf16=True,
-      # torch_compile=True,
-      # torch_compile_backend="inductor",
-      # torch_compile_mode="reduce-overhead",
       tf32=False,
       optim="adamw_torch"
     )
