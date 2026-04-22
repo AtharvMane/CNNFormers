@@ -20,6 +20,7 @@ class CNNFormerConfig(ResNetConfig):
         #Backbone Params
         output_indices: list[int] | None = None,
         output_features: list[str] | None = None,
+        freeze_backbone: bool | None = None,
 
         # Self Supervised Training Model/update Hyperparams
         num_loss_stages: int = 3, #Tells what layers to compare for dense SSL Loss
@@ -64,6 +65,8 @@ class CNNFormerConfig(ResNetConfig):
         self.dropout = dropout
         self.dims_per_multi_attention_head = dims_per_multi_attention_head
         self.attention_is_dmsa = attention_is_dmsa
+
+        self.freeze_backbone = freeze_backbone
 
         self.stage_names = ['stem_out'] + [f"layer_{i}_out" for i in range(1, len(depths)+1)]
         self.set_output_features_output_indices(out_features=output_features, out_indices=output_indices)
