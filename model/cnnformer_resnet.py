@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from transformers import ResNetModel
-from transformers.modeling_outputs import BaseModelOutput, BackboneOutput
+from transformers.modeling_outputs import ImageClassifierOutput, BackboneOutput
 from transformers.utils.generic import ModelOutput
 from transformers import PreTrainedModel
 from transformers.backbone_utils import BackboneMixin
@@ -96,10 +96,13 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
     )
 
     self.global_projector = nn.Sequential(
-      nn.Linear(
-        in_features=2*config.attention_embed_dim,
-        out_features=config.attention_embed_dim,
+      nn.Conv2d(
+        in_channels=2*config.attention_embed_dim,
+        out_channels=config.attention_embed_dim,
+        kernel_size=(1,1)
       ),
+      RMSNorm2d(config.attention_embed_dim),
+      nn.GELU()
     )
 
   @jaxtyped(typechecker=typechecker)
@@ -132,8 +135,9 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
     ).squeeze()
     
     global_cls_token = torch.cat([cnn_cls_token, cls_token], dim = 1)
+    
 
-    global_cls_token = self.global_projector(global_cls_token)
+    global_cls_token = self.global_projector(global_cls_token[:,:, None, None]).squeezr()
 
     if not return_dict:
       return (hidden_states, attentions)
@@ -235,22 +239,47 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
 
     for i in range(config.num_loss_stages):
       self.student_projectors.append(
-        nn.Conv2d(
-          config.hidden_sizes[-i-1],
-          config.dense_ssl_projection_dim,
-          kernel_size=(1,1),
-          stride=(1,1)
+        nn.Sequential(
+          nn.Conv2d(
+            config.hidden_sizes[-i-1],
+            config.dense_ssl_projection_dim,
+            kernel_size=(1,1),
+            stride=(1,1)
+          ),
+          RMSNorm2d(config.dense_ssl_projection_dim),
+          nn.GELU(),
+          nn.Conv1d(
+            in_channels=config.dense_ssl_projection_dim,
+            out_channels=config.dense_ssl_projection_dim,
+            kernel_size=(1,1),
+            stride=(1,1)
+          )
         )
       )
       self.teacher_projectors.append(
-        nn.Conv2d(
-          config.hidden_sizes[-i-1],
-          config.dense_ssl_projection_dim,
-          kernel_size=(1,1),
-          stride=(1,1)
+        nn.Sequential(
+          nn.Conv2d(
+            config.hidden_sizes[-i-1],
+            config.dense_ssl_projection_dim,
+            kernel_size=(1,1),
+            stride=(1,1)
+          ),
+          RMSNorm2d(config.dense_ssl_projection_dim),
+          nn.GELU(),
+          nn.Conv1d(
+            in_channels=config.dense_ssl_projection_dim,
+            out_channels=config.dense_ssl_projection_dim,
+            kernel_size=(1,1),
+            stride=(1,1)
+          )
         )
       )
 
+      self.global_ssl_projector = nn.Sequential(
+        nn.Linear(in_features=config),
+        nn.ReLU(),
+        nn.Linear()
+      )
       self.losses.append(
         FeatureComparisonLoss(scale_factor=scales[-i-1], temperature=config.loss_temperature)
       )
@@ -326,5 +355,40 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     )
 
     
-
-
+class CNNFormerForImageClassification(CNNFormerPretrainedModel):
+  def __init__(self, config: CNNFormerConfig):
+    super().__init__(config=config)
+    self.backbone = CNNFormerResNetModel(config)
+    
+    if config.freeze_backbone:
+      with torch.no_grad():
+        for param in self.backbone.parameters():
+          param.requires_grad_(False)
+    
+    self.projector = nn.Sequential(
+      nn.Linear(
+        in_features=config.dense_ssl_projection_dim,
+        out_features=config.dense_ssl_projection_dim,
+      ),
+      nn.GELU(),
+      nn.Linear(
+        in_features=config.dense_ssl_projection_dim,
+        out_features=config.num_labels
+      )
+    )
+    self.loss_fct = nn.CrossEntropyLoss()
+  def forward(
+      self,
+      pixel_values,
+      labels = None
+    ):
+    backbone_outs = self.backbone.forward(pixel_values)
+    hidden_state = backbone_outs.last_global_hidden_state
+    logits = self.projector(hidden_state)
+    loss = None
+    if labels is not None:
+      loss = self.loss_fct(logits.view(-1, self.num_classes), labels.view(-1))
+    return ImageClassifierOutput(
+            loss=loss,
+            logits=logits,
+        )
