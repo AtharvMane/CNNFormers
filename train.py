@@ -57,7 +57,7 @@ if __name__=="__main__":
         hidden_sizes = [64, 128, 256, 512],
         hidden_act = "silu",
         layer_type = "basic",
-
+        num_loss_stages = 2,
         attention_patch_size=8,
         attention_embed_dim=384,
         upscaler_kernel_size=5,
@@ -68,14 +68,19 @@ if __name__=="__main__":
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128",
-      per_device_train_batch_size=24,
-      per_device_eval_batch_size=24,
+      per_device_train_batch_size=40,
+      per_device_eval_batch_size=40,
       eval_strategy="no",            # Run evaluation every epoch
-      save_strategy="epoch",            # Save checkpoint every epoch
+      do_eval=False,
+      save_strategy="steps",
+      # Specify the frequency (e.g., save every 500 steps)
+      save_steps=1000,
+      # Optional: limit the total number of checkpoints to save disk space
+      save_total_limit=3,           # Save checkpoint every epoch
       report_to="wandb",
       num_train_epochs=300,             # Total number of epochs (use more for real training)
       learning_rate=1e-4,
-      load_best_model_at_end=True,      # Load the best model at the end
+      load_best_model_at_end=False,      # Load the best model at the end
       metric_for_best_model="accuracy", # Use accuracy to find the best model
       logging_dir='./logs',
       logging_steps=50,
