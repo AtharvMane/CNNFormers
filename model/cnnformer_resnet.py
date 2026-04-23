@@ -1,5 +1,3 @@
-import os
-
 import torch
 import torch.nn as nn
 
@@ -98,15 +96,11 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
     )
 
     self.global_projector = nn.Sequential(
-      nn.Conv2d(
-        in_channels=2*config.attention_embed_dim,
-        out_channels=config.attention_embed_dim,
-        kernel_size=(1,1)
+      nn.Linear(
+        in_features=2*config.attention_embed_dim,
+        out_features=config.attention_embed_dim,
       ),
-      RMSNorm2d(config.attention_embed_dim),
-      nn.GELU()
     )
-    self.post_init()
 
   @jaxtyped(typechecker=typechecker)
   def forward(
@@ -138,8 +132,8 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
     ).squeeze([2,3])
     
     global_cls_token = torch.cat([cnn_cls_token, cls_token], dim = 1)
-    
-    global_cls_token = self.global_projector(global_cls_token[:,:, None, None]).squeeze([2,3])
+
+    global_cls_token = self.global_projector(global_cls_token)
 
     if not return_dict:
       return (hidden_states, attentions)
@@ -210,54 +204,52 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     for i in range(len(self.config.depths)-1):
       scales.append(2**(i+2))
 
+    with torch.device('cpu'):
+      self.transform = K.AugmentationSequential(
+          K.RandomHorizontalFlip(p=config.horizontal_flip_probability),
+          K.RandomRotation(config.random_rotation_max_angle_degrees),
+          K.RandomResizedCrop(
+            size = config.random_resize_crop_size,
+            scale = config.random_resize_crop_scale,
+            p = config.random_resize_crop_probability
+          ),
+          K.ColorJitter(
+            brightness = config.color_jitter_brightness,
+            contrast = config.color_jitter_contrast,
+            saturation = config.color_jitter_saturation,
+            hue = config.color_jitter_hue,
+            p = config.color_jitter_probability
+          ),
+          K.RandomGrayscale(
+            p=config.random_grayscale_probability,
+            rgb_weights=torch.tensor(config.normalize_mean)
+          ),
+          K.RandomGaussianBlur(
+            kernel_size=config.gaussian_blur_kernel_size,
+            sigma=config.gaussian_blur_sigma,
+            p=config.gaussian_blur_probability
+          ),
+          K.RandomSolarize(p=config.solarize_probability),
+          K.Normalize(mean=config.normalize_mean, std=config.normalize_std),
+          data_keys=['image']
+        )
+
     for i in range(config.num_loss_stages):
       self.student_projectors.append(
-        nn.Sequential(
-          nn.Conv2d(
-            config.hidden_sizes[-i-1],
-            config.dense_ssl_projection_dim,
-            kernel_size=(1,1),
-            stride=(1,1)
-          ),
-          RMSNorm2d(config.dense_ssl_projection_dim),
-          nn.GELU(),
-          nn.Conv2d(
-            in_channels=config.dense_ssl_projection_dim,
-            out_channels=config.dense_ssl_projection_dim,
-            kernel_size=(1,1),
-            stride=(1,1)
-          )
+        nn.Conv2d(
+          config.hidden_sizes[-i-1],
+          config.dense_ssl_projection_dim,
+          kernel_size=(1,1),
+          stride=(1,1)
         )
       )
       self.teacher_projectors.append(
-        nn.Sequential(
-          nn.Conv2d(
-            config.hidden_sizes[-i-1],
-            config.dense_ssl_projection_dim,
-            kernel_size=(1,1),
-            stride=(1,1)
-          ),
-          RMSNorm2d(config.dense_ssl_projection_dim),
-          nn.GELU(),
-          nn.Conv2d(
-            in_channels=config.dense_ssl_projection_dim,
-            out_channels=config.dense_ssl_projection_dim,
-            kernel_size=(1,1),
-            stride=(1,1)
-          )
+        nn.Conv2d(
+          config.hidden_sizes[-i-1],
+          config.dense_ssl_projection_dim,
+          kernel_size=(1,1),
+          stride=(1,1)
         )
-      )
-
-      self.student_global_ssl_projector = nn.Sequential(
-        nn.Linear(in_features=config.attention_embed_dim, out_features=config.dense_ssl_projection_dim),
-        nn.GELU(),
-        nn.Linear(in_features=config.dense_ssl_projection_dim, out_features=config.num_labels)
-      )
-
-      self.teacher_global_ssl_projector = nn.Sequential(
-        nn.Linear(in_features=config.attention_embed_dim, out_features=config.dense_ssl_projection_dim),
-        nn.ReLU(),
-        nn.Linear(in_features=config.dense_ssl_projection_dim, out_features=config.num_labels)
       )
 
       self.losses.append(
@@ -266,43 +258,6 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     
     self.global_loss = InfoNCELoss(temperature=config.loss_temperature)
     self.initialize_teacher()
-
-    with torch.device('cpu'):
-      self._build_transform()
-
-    self.post_init()
-
-
-  @torch.no_grad()
-  def _build_transform(self):
-    self.transform = K.AugmentationSequential(
-        K.RandomHorizontalFlip(p=self.config.horizontal_flip_probability),
-        K.RandomRotation(self.config.random_rotation_max_angle_degrees),
-        K.RandomResizedCrop(
-          size = self.config.random_resize_crop_size,
-          scale = self.config.random_resize_crop_scale,
-          p = self.config.random_resize_crop_probability
-        ),
-        K.ColorJitter(
-          brightness = self.config.color_jitter_brightness,
-          contrast = self.config.color_jitter_contrast,
-          saturation = self.config.color_jitter_saturation,
-          hue = self.config.color_jitter_hue,
-          p = self.config.color_jitter_probability
-        ),
-        K.RandomGrayscale(
-          p=self.config.random_grayscale_probability,
-          rgb_weights=torch.tensor(self.config.normalize_mean)
-        ),
-        K.RandomGaussianBlur(
-          kernel_size=self.config.gaussian_blur_kernel_size,
-          sigma=self.config.gaussian_blur_sigma,
-          p=self.config.gaussian_blur_probability
-        ),
-        K.RandomSolarize(p=self.config.solarize_probability),
-        K.Normalize(mean=self.config.normalize_mean, std=self.config.normalize_std),
-        data_keys=['image']
-      )
 
   @torch.no_grad()
   def initialize_teacher(self):
@@ -338,9 +293,6 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     curr_dtype = pixel_values.dtype
     self.update_teacher()
 
-    # if self.transform is None:
-      
-
     with torch.autocast(device_type=pixel_values.device.type, dtype=torch.float32, enabled=False):
       pixel_values_1 = self.transform(pixel_values)
       pix_transform_1 = self.transform.transform_matrix
@@ -350,17 +302,10 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     student_outs = self.backbone_student(pixel_values_1.to(curr_dtype), output_hidden_states=True)
     teacher_outs = self.teacher_forward(pixel_values_2.to(curr_dtype))
 
-    student_global_outs = self.student_global_ssl_projector(
-      student_outs.last_global_hidden_state
-    )
-
-    teacher_global_outs = self.teacher_global_ssl_projector(
-      teacher_outs.last_global_hidden_state
-    )
-
     loss = self.global_loss(
-      student_global_outs[None],
-      teacher_global_outs[None]
+      student_outs.last_global_hidden_state[None],
+      teacher_outs.last_global_hidden_state[None],
+
     )
 
     for idx, (loss_fn, student_projector, teacher_projector) in enumerate(
