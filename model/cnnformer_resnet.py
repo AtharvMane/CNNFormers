@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 
@@ -104,6 +106,7 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
       RMSNorm2d(config.attention_embed_dim),
       nn.GELU()
     )
+    self.post_init()
 
   @jaxtyped(typechecker=typechecker)
   def forward(
@@ -132,12 +135,11 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
 
     cnn_cls_token = self.cnn_global_projector(
       hidden_states[-1]
-    ).squeeze()
+    ).squeeze([2,3])
     
     global_cls_token = torch.cat([cnn_cls_token, cls_token], dim = 1)
     
-
-    global_cls_token = self.global_projector(global_cls_token[:,:, None, None]).squeezr()
+    global_cls_token = self.global_projector(global_cls_token[:,:, None, None]).squeeze([2,3])
 
     if not return_dict:
       return (hidden_states, attentions)
@@ -208,35 +210,6 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     for i in range(len(self.config.depths)-1):
       scales.append(2**(i+2))
 
-    self.transform = K.AugmentationSequential(
-        K.RandomHorizontalFlip(p=config.horizontal_flip_probability),
-        K.RandomRotation(config.random_rotation_max_angle_degrees),
-        K.RandomResizedCrop(
-          size = config.random_resize_crop_size,
-          scale = config.random_resize_crop_scale,
-          p = config.random_resize_crop_probability
-        ),
-        K.ColorJitter(
-          brightness = config.color_jitter_brightness,
-          contrast = config.color_jitter_contrast,
-          saturation = config.color_jitter_saturation,
-          hue = config.color_jitter_hue,
-          p = config.color_jitter_probability
-        ),
-        K.RandomGrayscale(
-          p=config.random_grayscale_probability,
-          rgb_weights=torch.tensor(config.normalize_mean)
-        ),
-        K.RandomGaussianBlur(
-          kernel_size=config.gaussian_blur_kernel_size,
-          sigma=config.gaussian_blur_sigma,
-          p=config.gaussian_blur_probability
-        ),
-        K.RandomSolarize(p=config.solarize_probability),
-        K.Normalize(mean=config.normalize_mean, std=config.normalize_std),
-        data_keys=['image']
-      )
-
     for i in range(config.num_loss_stages):
       self.student_projectors.append(
         nn.Sequential(
@@ -248,7 +221,7 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
           ),
           RMSNorm2d(config.dense_ssl_projection_dim),
           nn.GELU(),
-          nn.Conv1d(
+          nn.Conv2d(
             in_channels=config.dense_ssl_projection_dim,
             out_channels=config.dense_ssl_projection_dim,
             kernel_size=(1,1),
@@ -266,7 +239,7 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
           ),
           RMSNorm2d(config.dense_ssl_projection_dim),
           nn.GELU(),
-          nn.Conv1d(
+          nn.Conv2d(
             in_channels=config.dense_ssl_projection_dim,
             out_channels=config.dense_ssl_projection_dim,
             kernel_size=(1,1),
@@ -275,11 +248,18 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
         )
       )
 
-      self.global_ssl_projector = nn.Sequential(
-        nn.Linear(in_features=config),
-        nn.ReLU(),
-        nn.Linear()
+      self.student_global_ssl_projector = nn.Sequential(
+        nn.Linear(in_features=config.attention_embed_dim, out_features=config.dense_ssl_projection_dim),
+        nn.GELU(),
+        nn.Linear(in_features=config.dense_ssl_projection_dim, out_features=config.num_labels)
       )
+
+      self.teacher_global_ssl_projector = nn.Sequential(
+        nn.Linear(in_features=config.attention_embed_dim, out_features=config.dense_ssl_projection_dim),
+        nn.ReLU(),
+        nn.Linear(in_features=config.dense_ssl_projection_dim, out_features=config.num_labels)
+      )
+
       self.losses.append(
         FeatureComparisonLoss(scale_factor=scales[-i-1], temperature=config.loss_temperature)
       )
@@ -287,14 +267,51 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     self.global_loss = InfoNCELoss(temperature=config.loss_temperature)
     self.initialize_teacher()
 
+    with torch.device('cpu'):
+      self._build_transform()
+
+    self.post_init()
+
+
+  @torch.no_grad()
+  def _build_transform(self):
+    self.transform = K.AugmentationSequential(
+        K.RandomHorizontalFlip(p=self.config.horizontal_flip_probability),
+        K.RandomRotation(self.config.random_rotation_max_angle_degrees),
+        K.RandomResizedCrop(
+          size = self.config.random_resize_crop_size,
+          scale = self.config.random_resize_crop_scale,
+          p = self.config.random_resize_crop_probability
+        ),
+        K.ColorJitter(
+          brightness = self.config.color_jitter_brightness,
+          contrast = self.config.color_jitter_contrast,
+          saturation = self.config.color_jitter_saturation,
+          hue = self.config.color_jitter_hue,
+          p = self.config.color_jitter_probability
+        ),
+        K.RandomGrayscale(
+          p=self.config.random_grayscale_probability,
+          rgb_weights=torch.tensor(self.config.normalize_mean)
+        ),
+        K.RandomGaussianBlur(
+          kernel_size=self.config.gaussian_blur_kernel_size,
+          sigma=self.config.gaussian_blur_sigma,
+          p=self.config.gaussian_blur_probability
+        ),
+        K.RandomSolarize(p=self.config.solarize_probability),
+        K.Normalize(mean=self.config.normalize_mean, std=self.config.normalize_std),
+        data_keys=['image']
+      )
+
   @torch.no_grad()
   def initialize_teacher(self):
     for parameter_teacher, parameter_student in zip(self.backbone_teacher.parameters(), self.backbone_student.parameters()):
-      parameter_teacher.data = parameter_student.data
+      parameter_teacher.data = parameter_student.data.clone()
       parameter_teacher.requires_grad_(False)
     
     for parameter_teacher, parameter_student in zip(self.teacher_projectors.parameters(), self.student_projectors.parameters()):
-      parameter_teacher.data = parameter_student.data
+      parameter_teacher.data = parameter_student.data.clone()
       parameter_teacher.requires_grad_(False)
   
   @torch.no_grad()
@@ -321,6 +338,9 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     curr_dtype = pixel_values.dtype
     self.update_teacher()
 
+    # if self.transform is None:
+      
+
     with torch.autocast(device_type=pixel_values.device.type, dtype=torch.float32, enabled=False):
       pixel_values_1 = self.transform(pixel_values)
       pix_transform_1 = self.transform.transform_matrix
@@ -330,10 +350,17 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     student_outs = self.backbone_student(pixel_values_1.to(curr_dtype), output_hidden_states=True)
     teacher_outs = self.teacher_forward(pixel_values_2.to(curr_dtype))
 
-    loss = self.global_loss(
-      student_outs.last_global_hidden_state[None],
-      teacher_outs.last_global_hidden_state[None],
+    student_global_outs = self.student_global_ssl_projector(
+      student_outs.last_global_hidden_state
+    )
 
+    teacher_global_outs = self.teacher_global_ssl_projector(
+      teacher_outs.last_global_hidden_state
+    )
+
+    loss = self.global_loss(
+      student_global_outs[None],
+      teacher_global_outs[None]
     )
 
     for idx, (loss_fn, student_projector, teacher_projector) in enumerate(
@@ -354,6 +381,10 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       teacher_output=teacher_outs
     )
 
+  def save_pretrained(self, save_directory, **kwargs):
+    super().save_pretrained(save_directory, **kwargs)
+    save_dir_backbone = os.path.join(save_directory, 'backbone')
+    self.backbone_student.save_pretrained(save_directory=save_dir_backbone, **kwargs)
     
 class CNNFormerForImageClassification(CNNFormerPretrainedModel):
   def __init__(self, config: CNNFormerConfig):
@@ -387,8 +418,19 @@ class CNNFormerForImageClassification(CNNFormerPretrainedModel):
     logits = self.projector(hidden_state)
     loss = None
     if labels is not None:
-      loss = self.loss_fct(logits.view(-1, self.num_classes), labels.view(-1))
+      loss = self.loss_fct(logits.view(-1, self.config.num_labels), labels.view(-1))
     return ImageClassifierOutput(
             loss=loss,
             logits=logits,
         )
+
+  @classmethod
+  def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
+    load_backbone_only = kwargs.pop('load_backbone_only', False)
+    if load_backbone_only:
+      config = cls.config_class.from_pretrained(pretrained_model_name_or_path)
+      model = cls(config)
+
+      model.backbone = CNNFormerResNetModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+    else:
+      return super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
