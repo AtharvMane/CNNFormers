@@ -10,3 +10,4 @@ checkpoints_essence_of_imagenet_with_dropout/
 checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs384/
 torch_compile_cache/
 checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs256/
+checkpoints_cnn_former_ssl/
