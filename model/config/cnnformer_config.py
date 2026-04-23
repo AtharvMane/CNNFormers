@@ -18,8 +18,8 @@ class CNNFormerConfig(ResNetConfig):
         attention_is_dmsa: bool | None = None,
 
         #Backbone Params
-        output_indices: list[int] | None = None,
-        output_features: list[str] | None = None,
+        out_indices: list[int] | None = None,
+        out_features: list[str] | None = None,
         freeze_backbone: bool | None = None,
 
         # Self Supervised Training Model/update Hyperparams
@@ -58,7 +58,11 @@ class CNNFormerConfig(ResNetConfig):
         **kwargs
     ):
         assert len(hidden_sizes)==len(depths), "Recieved unequal number of depths and hidden_sizes. Specify a hidden size for reach element in depth"
-        super().__init__(depths=depths, hidden_sizes=hidden_sizes, **kwargs)
+        super().__init__(depths=depths, hidden_sizes=hidden_sizes, out_features=None, out_indices=None, **kwargs)
+        
+        self.stage_names = ['stem_out'] + [f"layer_{i}_out" for i in range(1, len(depths)+1)]
+        self.set_output_features_output_indices(out_features=out_features, out_indices=out_indices)
+        
         self.attention_patch_size = attention_patch_size
         self.attention_embed_dim = attention_embed_dim
         self.upscaler_kernel_size = upscaler_kernel_size
@@ -68,8 +72,6 @@ class CNNFormerConfig(ResNetConfig):
 
         self.freeze_backbone = freeze_backbone
 
-        self.stage_names = ['stem_out'] + [f"layer_{i}_out" for i in range(1, len(depths)+1)]
-        self.set_output_features_output_indices(out_features=output_features, out_indices=output_indices)
         self.num_loss_stages = num_loss_stages
         self.dense_ssl_projection_dim = dense_ssl_projection_dim
         self.teacher_training_lambda = teacher_training_lambda
