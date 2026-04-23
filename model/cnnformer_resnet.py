@@ -408,6 +408,7 @@ class CNNFormerForImageClassification(CNNFormerPretrainedModel):
       )
     )
     self.loss_fct = nn.CrossEntropyLoss()
+    self.post_init()
   def forward(
       self,
       pixel_values,
@@ -432,5 +433,6 @@ class CNNFormerForImageClassification(CNNFormerPretrainedModel):
       model = cls(config)
 
       model.backbone = CNNFormerResNetModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+      return model
     else:
       return super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
