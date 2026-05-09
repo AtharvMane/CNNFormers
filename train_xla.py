@@ -1,23 +1,9 @@
 import datasets
-import transformers
-import evaluate
 from transformers import TrainingArguments, Trainer
-import torch
 
 from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
 from model.config.cnnformer_config import CNNFormerConfig
 import torchvision.transforms as transforms
-from safetensors.torch import load_file
-import numpy as np
-
-
-# Metrics
-accuracy_metric = evaluate.load("accuracy")
-def compute_metrics(eval_pred):
-    """Called by the Trainer to compute metrics."""
-    logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
-    return accuracy_metric.compute(predictions=predictions, references=labels)
 
 
 
@@ -38,7 +24,6 @@ if __name__=="__main__":
     # Get label info
     labels_list = ds['train'].features['label'].names
     num_labels = len(labels_list)
-    # print(f"Found {num_labels} labels: {labels_list}")
 
     train_transforms = transforms.Compose([
         transforms.ToTensor(),
@@ -57,7 +42,7 @@ if __name__=="__main__":
         hidden_sizes = [64, 128, 256, 512],
         hidden_act = "silu",
         layer_type = "basic",
-
+        num_loss_stages = 2,
         attention_patch_size=8,
         attention_embed_dim=384,
         upscaler_kernel_size=5,
@@ -67,29 +52,25 @@ if __name__=="__main__":
     model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
-      output_dir="./checkpoints_essence_of_imagenet_ssl_bf16",
-      per_device_train_batch_size=16,
-      per_device_eval_batch_size=16,
-      eval_strategy="epoch",            # Run evaluation every epoch
-      save_strategy="epoch",            # Save checkpoint every epoch
+      output_dir="./checkpoints_cnn_former_ssl_corrected_momentum1",
+      per_device_train_batch_size=40,
+      per_device_eval_batch_size=40,
+      eval_strategy="no",
+      do_eval=False,
+      save_strategy="steps",
+      save_steps=1000,
       report_to="wandb",
-      num_train_epochs=300,             # Total number of epochs (use more for real training)
+      num_train_epochs=300,
       learning_rate=1e-4,
-      load_best_model_at_end=True,      # Load the best model at the end
-      metric_for_best_model="accuracy", # Use accuracy to find the best model
+      load_best_model_at_end=False,      # Load the best model at the end
       logging_dir='./logs',
       logging_steps=50,
       warmup_steps=100,
-      run_name="cnnformer_bigger_batch_Run_essence_of_imagenet_with_dropout",
+      run_name="cnnformer_ssl",
       weight_decay=1e-4,
       remove_unused_columns=False,
-      bf16=True,
-      # torch_compile=True,
-      # torch_compile_backend="openxla",
-      # torch_compile_mode="default",
       tf32=False,
-      optim="adamw_torch_xla",
-      dataloader_num_workers=12
+      optim="adamw_torch_xla"
     )
     
     trainer = Trainer(
@@ -97,8 +78,8 @@ if __name__=="__main__":
       args=training_args,
       train_dataset=train_ds,
       eval_dataset=val_ds,
-      compute_metrics=compute_metrics,
     )
 
     trainer.train(
+      resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum1/checkpoint-101000"
     )

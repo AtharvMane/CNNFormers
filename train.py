@@ -52,14 +52,13 @@ if __name__=="__main__":
     model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
-      output_dir="./checkpoints_cnn_former_ssl",
+      output_dir="./checkpoints_cnn_former_ssl_corrected_momentum1",
       per_device_train_batch_size=40,
       per_device_eval_batch_size=40,
       eval_strategy="no",
       do_eval=False,
       save_strategy="steps",
       save_steps=1000,
-      save_total_limit=3,
       report_to="wandb",
       num_train_epochs=300,
       learning_rate=1e-4,
@@ -83,5 +82,5 @@ if __name__=="__main__":
     )
 
     trainer.train(
-      # resume_from_checkpoint="./checkpoints_essence_of_imagenet_with_conv_unconv_former_tbs128/checkpoint-4000/"
+      resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum1/checkpoint-101000"
     )

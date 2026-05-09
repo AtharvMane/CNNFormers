@@ -10,7 +10,7 @@ from safetensors.torch import load_file
 import numpy as np
 
 
-model_path = "./checkpoints_cnn_former_ssl_corrected_momentum1/checkpoint-54000/backbone/"
+model_path = "./checkpoints_cnn_former_ssl_corrected_momentum1/checkpoint-70000/backbone/"
 
 
 # Metrics
@@ -76,9 +76,9 @@ if __name__=="__main__":
       run_name="cnnformers_sup_classfn",
       weight_decay=1e-5,
       remove_unused_columns=False,
-      fp16=True,
-      tf32=False,
-      optim="adamw_torch"
+      # bf16=True,
+      # tf32=False,
+      optim="adamw_torch_xla"
     )
     
     trainer = Trainer(

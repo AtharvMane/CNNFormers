@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 
@@ -92,7 +94,6 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
       RMSNorm2d(
         num_channels=config.attention_embed_dim
       ),
-      nn.GELU()
     )
 
     self.global_projector = nn.Sequential(
@@ -101,6 +102,8 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
         out_features=config.attention_embed_dim,
       ),
     )
+
+    self.post_init()
 
   @jaxtyped(typechecker=typechecker)
   def forward(
@@ -236,19 +239,64 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
 
     for i in range(config.num_loss_stages):
       self.student_projectors.append(
-        nn.Conv2d(
-          config.hidden_sizes[-i-1],
-          config.dense_ssl_projection_dim,
-          kernel_size=(1,1),
-          stride=(1,1)
+        nn.Sequential(
+
+          nn.Conv2d(
+            config.hidden_sizes[-i-1],
+            config.dense_ssl_projection_dim,
+            kernel_size=(1,1),
+            stride=(1,1)
+          ),
+          nn.GELU(),
+          nn.Conv2d(
+            config.dense_ssl_projection_dim,
+            config.dense_ssl_projection_dim,
+            kernel_size=(1,1),
+            stride=(1,1)
+          )
         )
       )
       self.teacher_projectors.append(
-        nn.Conv2d(
-          config.hidden_sizes[-i-1],
-          config.dense_ssl_projection_dim,
-          kernel_size=(1,1),
-          stride=(1,1)
+        nn.Sequential(
+          nn.Conv2d(
+            config.hidden_sizes[-i-1],
+            config.dense_ssl_projection_dim,
+            kernel_size=(1,1),
+            stride=(1,1)
+          ),
+          nn.GELU(),
+          nn.Conv2d(
+            config.dense_ssl_projection_dim,
+            config.dense_ssl_projection_dim,
+            kernel_size=(1,1),
+            stride=(1,1)
+          )
+        )
+      )
+
+      self.student_global_projector = nn.Sequential(
+        nn.GELU(),
+        nn.Linear(
+          in_features=config.attention_embed_dim,
+          out_features=config.dense_ssl_projection_dim
+        ),
+        nn.GELU(),
+        nn.Linear(
+          in_features=config.dense_ssl_projection_dim,
+          out_features=config.dense_ssl_projection_dim
+        ),
+      )
+
+      self.teacher_global_projector = nn.Sequential(
+        nn.GELU(),
+        nn.Linear(
+          in_features=config.attention_embed_dim,
+          out_features=config.dense_ssl_projection_dim
+        ),
+        nn.GELU(),
+        nn.Linear(
+          in_features=config.dense_ssl_projection_dim,
+          out_features=config.dense_ssl_projection_dim
         )
       )
 
@@ -258,6 +306,8 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     
     self.global_loss = InfoNCELoss(temperature=config.loss_temperature)
     self.initialize_teacher()
+    self.post_init()
+
 
   @torch.no_grad()
   def initialize_teacher(self):
@@ -268,17 +318,26 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     for parameter_teacher, parameter_student in zip(self.teacher_projectors.parameters(), self.student_projectors.parameters()):
       parameter_teacher.data = parameter_student.data.clone()
       parameter_teacher.requires_grad_(False)
+
+    for parameter_teacher, parameter_student in zip(self.teacher_global_projector.parameters(), self.student_global_projector.parameters()):
+      parameter_teacher.data = parameter_student.data.clone()
+      parameter_teacher.requires_grad_(False)
   
   @torch.no_grad()
   def update_teacher(self):
     for parameter_teacher, parameter_student in zip(self.backbone_teacher.parameters(), self.backbone_student.parameters()):
       parameter_teacher.data = (
-        self.config.teacher_training_lambda*parameter_student.data+(1-self.config.teacher_training_lambda)*parameter_teacher.data
+        (1-self.config.teacher_training_lambda)*parameter_student.data+(self.config.teacher_training_lambda)*parameter_teacher.data
       )
     
     for parameter_teacher, parameter_student in zip(self.teacher_projectors.parameters(), self.student_projectors.parameters()):
       parameter_teacher.data = (
-        self.config.teacher_training_lambda*parameter_student.data+(1-self.config.teacher_training_lambda)*parameter_teacher.data
+        (1-self.config.teacher_training_lambda)*parameter_student.data+(self.config.teacher_training_lambda)*parameter_teacher.data
+      )
+
+    for parameter_teacher, parameter_student in zip(self.teacher_global_projector.parameters(), self.student_global_projector.parameters()):
+      parameter_teacher.data = (
+        (1-self.config.teacher_training_lambda)*parameter_student.data+(self.config.teacher_training_lambda)*parameter_teacher.data
       )
 
   @torch.no_grad()
@@ -300,12 +359,15 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       pix_transform_2 = self.transform.transform_matrix
 
     student_outs = self.backbone_student(pixel_values_1.to(curr_dtype), output_hidden_states=True)
-    teacher_outs = self.teacher_forward(pixel_values_2.to(curr_dtype))
+    student_global_feats = self.student_global_projector(student_outs.last_global_hidden_state)
+
+    with torch.no_grad():
+      teacher_outs = self.teacher_forward(pixel_values_2.to(curr_dtype))
+      teacher_global_feats = self.teacher_global_projector(teacher_outs.last_global_hidden_state)
 
     loss = self.global_loss(
-      student_outs.last_global_hidden_state[None],
-      teacher_outs.last_global_hidden_state[None],
-
+      student_global_feats[None],
+      teacher_global_feats[None],
     )
 
     for idx, (loss_fn, student_projector, teacher_projector) in enumerate(
@@ -354,12 +416,14 @@ class CNNFormerForImageClassification(CNNFormerPretrainedModel):
     )
     self.loss_fct = nn.CrossEntropyLoss()
     self.post_init()
+
   def forward(
       self,
       pixel_values,
       labels = None
     ):
-    backbone_outs = self.backbone.forward(pixel_values)
+    with torch.no_grad():
+      backbone_outs = self.backbone.forward(pixel_values)
     hidden_state = backbone_outs.last_global_hidden_state
     logits = self.projector(hidden_state)
     loss = None
@@ -371,13 +435,18 @@ class CNNFormerForImageClassification(CNNFormerPretrainedModel):
         )
 
   @classmethod
+  @torch.no_grad()
   def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
     load_backbone_only = kwargs.pop('load_backbone_only', False)
     if load_backbone_only:
       config = cls.config_class.from_pretrained(pretrained_model_name_or_path)
+      config.freeze_backbone = True
+      config.num_labels = 1000
       model = cls(config)
 
       model.backbone = CNNFormerResNetModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+      for param in model.backbone.parameters():
+        param.requires_grad_(False)
       return model
     else:
       return super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
