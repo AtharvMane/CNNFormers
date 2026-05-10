@@ -20,3 +20,10 @@ The data used is a downsampled version of Imagenet-1k. We use DINOv2 to create g
 
 # Experiments
 We are currently in the middle of training this architecture. The unavailability of funded GPUs has stalled slowed down the overall progress, but we hope to finish 200K steps (16 epochs) by the end of this month.
+
+# Results
+Currently, after Pre-Training for 119 k steps at batch size: 40, (~8 epochs on the Imagenet-1k subset), we have achieved ~10.42% validation accuracy on the complete imagenet-1k validation set using only K-Nearest neighbors on the output backbone embeddings.
+
+## Significance
+On Imagenet-1k, on random guess, any image has a 0.1% chance of being classified correctly (1 in a 1000 classes), thus the baseline accuracy on the dataset is 0.1%, but we achieve 10.42% (>100 times) the expectation on a training set which is only ~40% the size of the original and only in ~8 epochs.
+This makes current result at least promising enough for further investigation.
