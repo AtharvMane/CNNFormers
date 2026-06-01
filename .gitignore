@@ -15,3 +15,4 @@ checkpoints_cnn_former_ssl/
 *checkpoints*/
 *.log
 *DS_Store*
+.vscode/

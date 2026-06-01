@@ -1,5 +1,10 @@
+import os
+import glob
+from huggingface_hub import HfApi
+
 import datasets
-from transformers import TrainingArguments, Trainer
+from transformers import TrainingArguments
+from ssl_trainer import SSLTrainer
 
 from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
 from model.config.cnnformer_config import CNNFormerConfig
@@ -19,7 +24,7 @@ def apply_transforms(examples, transform):
 
 if __name__=="__main__":
 	# Load the "320px" subset of Imagenette
-    ds = datasets.load_dataset("data/essence_of_imagenet_512")
+    ds = datasets.load_dataset("BusinessPlatypus/essence_of_imagenet_512")
 
     # Get label info
     labels_list = ds['train'].features['label'].names
@@ -52,9 +57,9 @@ if __name__=="__main__":
     model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
-      output_dir="./checkpoints_cnn_former_ssl_corrected_momentum1",
-      per_device_train_batch_size=40,
-      per_device_eval_batch_size=40,
+      output_dir="./checkpoints_cnn_former_ssl_corrected_momentum_g4",
+      per_device_train_batch_size=256,
+      per_device_eval_batch_size=256,
       eval_strategy="no",
       do_eval=False,
       save_strategy="steps",
@@ -74,13 +79,31 @@ if __name__=="__main__":
       optim="adamw_torch"
     )
     
-    trainer = Trainer(
+    trainer = SSLTrainer(
       model=model,
       args=training_args,
       train_dataset=train_ds,
       eval_dataset=val_ds,
     )
 
-    trainer.train(
-      resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum1/checkpoint-101000"
-    )
+    try:
+      trainer.train(
+        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-17000"
+      )
+    except KeyboardInterrupt:
+      print("\n[!] Training manually interrupted. Initiating emergency save and upload...")
+      
+      # 1. Force the trainer to save a full checkpoint (model + optimizer + scheduler + state)
+      # We use the internal method _save_checkpoint to ensure it formats exactly like a standard step checkpoint
+      trainer._save_checkpoint(model=trainer.model, trial=None)
+      print("Local checkpoint saved.")
+
+      # 2. Find the most recently created checkpoint directory
+      output_dir = training_args.output_dir
+      checkpoints = glob.glob(os.path.join(output_dir, "checkpoint-*"))
+      
+      if checkpoints:
+          latest_checkpoint = max(checkpoints, key=os.path.getmtime)
+          checkpoint_name = os.path.basename(latest_checkpoint)
+      else:
+          print("\n[!] No checkpoints found to upload.")

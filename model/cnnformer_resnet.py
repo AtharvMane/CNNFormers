@@ -33,6 +33,8 @@ class DenseWithGlobalOutput(ModelOutput):
 @dataclass
 class DenseContrastiveOutput(ModelOutput):
   loss: torch.FloatTensor | None = None
+  image_level_loss: torch.FloatTensor | None = None
+  patch_level_loss: torch.FloatTensor | None = None
   teacher_output: DenseWithGlobalOutput | None = None
   student_output: DenseWithGlobalOutput | None = None
 
@@ -365,17 +367,19 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       teacher_outs = self.teacher_forward(pixel_values_2.to(curr_dtype))
       teacher_global_feats = self.teacher_global_projector(teacher_outs.last_global_hidden_state)
 
-    loss = self.global_loss(
+    image_level_loss = self.global_loss(
       student_global_feats[None],
       teacher_global_feats[None],
     )
+
+    patch_level_loss = 0.0
 
     for idx, (loss_fn, student_projector, teacher_projector) in enumerate(
       zip(self.losses, self.student_projectors, self.teacher_projectors)
     ): 
       student_features = student_projector(student_outs.dense_hidden_states[-idx-1])
       teacher_features = teacher_projector(teacher_outs.dense_hidden_states[-idx-1])
-      loss+=loss_fn(
+      patch_level_loss+=loss_fn(
         features_1 = student_features,
         features_2 = teacher_features,
         transform_matrix_1 = pix_transform_1,
@@ -383,7 +387,9 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       )
 
     return DenseContrastiveOutput(
-      loss=loss,
+      loss=image_level_loss+patch_level_loss,
+      image_level_loss=image_level_loss,
+      patch_level_loss=patch_level_loss,
       student_output=student_outs,
       teacher_output=teacher_outs
     )
