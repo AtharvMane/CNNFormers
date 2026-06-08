@@ -196,5 +196,7 @@ class FeatureComparisonLoss(nn.Module):
         coords: Float[torch.Tensor, "batch_size num_points 1 2"],
         features: Float[torch.Tensor,  "batch_size C H W"]
     )->Float[torch.Tensor, "batch_size num_points C"]:
+        coords.contiguous()
+        features.contiguous()
         grid_sample = F.grid_sample(features, coords, align_corners=False)[:,:,:,0]
         return F.normalize(grid_sample, dim = 1).transpose(1,2)

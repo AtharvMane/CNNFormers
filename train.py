@@ -9,8 +9,9 @@ from ssl_trainer import SSLTrainer
 from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
 from model.config.cnnformer_config import CNNFormerConfig
 import torchvision.transforms as transforms
+import torch
 
-
+torch._dynamo.config.capture_scalar_outputs = True
 
 # function to apply transforms
 def apply_transforms(examples, transform):
@@ -24,7 +25,7 @@ def apply_transforms(examples, transform):
 
 if __name__=="__main__":
 	# Load the "320px" subset of Imagenette
-    ds = datasets.load_dataset("BusinessPlatypus/essence_of_imagenet_512")
+    ds = datasets.load_dataset("BusinessPlatypus/essence_of_imagenet_512", cache_dir = "./data/essence_of_imagenet_512")
 
     # Get label info
     labels_list = ds['train'].features['label'].names
@@ -54,12 +55,13 @@ if __name__=="__main__":
         dropout=0.3,
         dims_per_multi_attention_head=64,
     )
-    model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
+    model = CNNFormerResNetForPixelLevelRepresentationModeling.from_pretrained("./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-17000/")
+    # model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_cnn_former_ssl_corrected_momentum_g4",
-      per_device_train_batch_size=256,
-      per_device_eval_batch_size=256,
+      per_device_train_batch_size=96,
+      per_device_eval_batch_size=96,
       eval_strategy="no",
       do_eval=False,
       save_strategy="steps",
@@ -69,14 +71,18 @@ if __name__=="__main__":
       learning_rate=1e-4,
       load_best_model_at_end=False,      # Load the best model at the end
       logging_dir='./logs',
-      logging_steps=50,
-      warmup_steps=100,
+      logging_steps=16,
+      warmup_steps=500,
       run_name="cnnformer_ssl",
       weight_decay=1e-4,
       remove_unused_columns=False,
       bf16=True,
       tf32=False,
-      optim="adamw_torch"
+      optim="adamw_torch",
+      # torch_compile=True,
+      # torch_compile_backend="inductor",
+      # torch_compile_mode="reduce-overhead",
+      
     )
     
     trainer = SSLTrainer(
@@ -88,7 +94,7 @@ if __name__=="__main__":
 
     try:
       trainer.train(
-        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-17000"
+        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-26301"
       )
     except KeyboardInterrupt:
       print("\n[!] Training manually interrupted. Initiating emergency save and upload...")
