@@ -348,23 +348,19 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
 
   def forward(
       self,
-      pixel_values,
+      pixel_values_1: Float[torch.Tensor, "batch_size C H W"],
+      pixel_values_2: Float[torch.Tensor, "batch_size C H W"],
+      transform_matrix_1: Float[torch.Tensor, "batch_size 3 3"],
+      transform_matrix_2: Float[torch.Tensor, "batch_size 3 3"],
       labels = None
   )->DenseContrastiveOutput:
-    curr_dtype = pixel_values.dtype
     self.update_teacher()
 
-    with torch.autocast(device_type=pixel_values.device.type, dtype=torch.float32, enabled=False):
-      pixel_values_1 = self.transform(pixel_values)
-      pix_transform_1 = self.transform.transform_matrix
-      pixel_values_2 = self.transform(pixel_values)
-      pix_transform_2 = self.transform.transform_matrix
-
-    student_outs = self.backbone_student(pixel_values_1.to(curr_dtype), output_hidden_states=True)
+    student_outs = self.backbone_student(pixel_values_1, output_hidden_states=True)
     student_global_feats = self.student_global_projector(student_outs.last_global_hidden_state)
 
     with torch.no_grad():
-      teacher_outs = self.teacher_forward(pixel_values_2.to(curr_dtype))
+      teacher_outs = self.teacher_forward(pixel_values_2)
       teacher_global_feats = self.teacher_global_projector(teacher_outs.last_global_hidden_state)
 
     image_level_loss = self.global_loss(
@@ -372,7 +368,7 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       teacher_global_feats[None],
     )
 
-    patch_level_loss = 0.0
+    patch_level_loss = pixel_values_1.new_zeros(1).squeeze()
 
     for idx, (loss_fn, student_projector, teacher_projector) in enumerate(
       zip(self.losses, self.student_projectors, self.teacher_projectors)
@@ -382,8 +378,8 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       patch_level_loss+=loss_fn(
         features_1 = student_features,
         features_2 = teacher_features,
-        transform_matrix_1 = pix_transform_1,
-        transform_matrix_2 = pix_transform_2
+        transform_matrix_1 = transform_matrix_1,
+        transform_matrix_2 = transform_matrix_2
       )
 
     return DenseContrastiveOutput(

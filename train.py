@@ -1,17 +1,14 @@
 import os
 import glob
-from huggingface_hub import HfApi
 
+import torch
 import datasets
 from transformers import TrainingArguments
-from ssl_trainer import SSLTrainer
-
-from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
-from model.config.cnnformer_config import CNNFormerConfig
 import torchvision.transforms as transforms
-import torch
 
-torch._dynamo.config.capture_scalar_outputs = True
+from model.config.cnnformer_config import CNNFormerConfig
+from ssl_trainer import SSLTrainer
+from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
 
 # function to apply transforms
 def apply_transforms(examples, transform):
@@ -25,7 +22,7 @@ def apply_transforms(examples, transform):
 
 if __name__=="__main__":
 	# Load the "320px" subset of Imagenette
-    ds = datasets.load_dataset("BusinessPlatypus/essence_of_imagenet_512", cache_dir = "./data/essence_of_imagenet_512")
+    ds = datasets.load_dataset("BusinessPlatypus/essence_of_imagenet_512")#, cache_dir = "./data/essence_of_imagenet_512")
 
     # Get label info
     labels_list = ds['train'].features['label'].names
