@@ -354,8 +354,6 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       transform_matrix_2: Float[torch.Tensor, "batch_size 3 3"],
       labels = None
   )->DenseContrastiveOutput:
-    self.update_teacher()
-
     student_outs = self.backbone_student(pixel_values_1, output_hidden_states=True)
     student_global_feats = self.student_global_projector(student_outs.last_global_hidden_state)
 

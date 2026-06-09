@@ -76,8 +76,8 @@ if __name__=="__main__":
       bf16=True,
       tf32=False,
       optim="adamw_torch",
-      # torch_compile=True,
-      # torch_compile_backend="inductor",
+      torch_compile=True,
+      torch_compile_backend="inductor",
       # torch_compile_mode="reduce-overhead",
       
     )

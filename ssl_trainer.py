@@ -30,6 +30,7 @@ class SSLTrainer(Trainer):
             'transform_matrix_1': matrix1,
             'transform_matrix_2': matrix2,
         }
+        model.update_teacher()
         outputs = model(**model_inputs)
         
         # Extract total loss (required by Trainer for backprop)
