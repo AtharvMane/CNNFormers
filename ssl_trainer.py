@@ -1,5 +1,5 @@
 from transformers import Trainer
-
+import torch
 
 class SSLTrainer(Trainer):
     def __init__(self, *args, **kwargs):
@@ -9,6 +9,17 @@ class SSLTrainer(Trainer):
         self._patch_level_loss_sum = None
         self._custom_loss_count = 0
 
+    @torch._dynamo.disable
+    def _accumulate_custom_metrics(self, img_loss, patch_loss):
+        self._custom_loss_count += 1
+
+        if self._image_level_loss_sum is None:
+            # Explicitly clone and detach outside the graph tracking
+            self._image_level_loss_sum = img_loss.detach().item()
+            self._patch_level_loss_sum = patch_loss.detach().item()
+        else:
+            self._image_level_loss_sum = self._image_level_loss_sum + img_loss.detach().item()
+            self._patch_level_loss_sum = self._patch_level_loss_sum + patch_loss.detach().item()
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         """
@@ -16,6 +27,7 @@ class SSLTrainer(Trainer):
         We override this to intercept our custom losses.
         """
         pixel_values = inputs["pixel_values"]
+        curr_dtype = pixel_values.dtype
         pixel_values = pixel_values.float()
 
         view1 = model.transform(pixel_values)
@@ -25,10 +37,10 @@ class SSLTrainer(Trainer):
         matrix2 = model.transform.transform_matrix.clone()
 
         model_inputs = {
-            'pixel_values_1': view1,
-            'pixel_values_2': view2,
-            'transform_matrix_1': matrix1,
-            'transform_matrix_2': matrix2,
+            'pixel_values_1': view1.to(curr_dtype),
+            'pixel_values_2': view2.to(curr_dtype),
+            'transform_matrix_1': matrix1.to(curr_dtype),
+            'transform_matrix_2': matrix2.to(curr_dtype),
         }
         model.update_teacher()
         outputs = model(**model_inputs)
@@ -38,17 +50,11 @@ class SSLTrainer(Trainer):
         
         # Accumulate our custom losses (only during training)
         if model.training:
-            self._custom_loss_count += 1
-            img_loss = outputs.get("image_level_loss").detach()
-            patch_loss = outputs.get("patch_level_loss").detach()
-
-            if self._image_level_loss_sum is None:
-                self._image_level_loss_sum = img_loss
-                self._patch_level_loss_sum = patch_loss
-            else:
-                self._image_level_loss_sum = self._image_level_loss_sum + img_loss
-                self._patch_level_loss_sum = self._patch_level_loss_sum + patch_loss
-            
+            # Call our uncompiled helper method
+            self._accumulate_custom_metrics(
+                outputs.get("image_level_loss"), 
+                outputs.get("patch_level_loss")
+            )       
         return (loss, outputs) if return_outputs else loss
 
     def log(self, logs: dict, start_time: float | None = None):
@@ -57,8 +63,8 @@ class SSLTrainer(Trainer):
         """
         # If we have accumulated losses, average them and add them to the log dictionary
         if self._custom_loss_count > 0:
-            logs["image_level_loss"] = self._image_level_loss_sum.item() / self._custom_loss_count
-            logs["patch_level_loss"] = self._patch_level_loss_sum.item() / self._custom_loss_count
+            logs["image_level_loss"] = self._image_level_loss_sum / self._custom_loss_count
+            logs["patch_level_loss"] = self._patch_level_loss_sum / self._custom_loss_count
             
             # Reset the accumulators for the next logging window
             self._image_level_loss_sum = None
@@ -67,3 +73,20 @@ class SSLTrainer(Trainer):
             
         # Call the standard logging method so it gets pushed to WandB, TensorBoard, etc.
         super().log(logs, start_time)
+
+
+class SSLTrainerXLA(SSLTrainer):
+  def __init__(self, *args, **kwargs):
+      super().__init__(*args, **kwargs)
+  
+  def _wrap_model(self, model, training=True, **kwargs):
+        # Let the native Trainer handle standard wrapper setups (like DDP/FSDP if any)
+        model = super()._wrap_model(model, training=training)
+        
+        # Now that the model and optimizer are fully prepared by accelerate, 
+        # compile it specifically for OpenXLA!
+        if training:
+            print("[INFO] Explicitly compiling model with torch.compile for OpenXLA...")
+            model = torch.compile(model, backend="openxla")
+            
+        return model

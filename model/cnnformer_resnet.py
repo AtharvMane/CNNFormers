@@ -327,20 +327,17 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
   
   @torch.no_grad()
   def update_teacher(self):
+    teacher_lambda = self.config.teacher_training_lambda
     for parameter_teacher, parameter_student in zip(self.backbone_teacher.parameters(), self.backbone_student.parameters()):
-      parameter_teacher.data = (
-        (1-self.config.teacher_training_lambda)*parameter_student.data+(self.config.teacher_training_lambda)*parameter_teacher.data
-      )
-    
+            # Equivalent to: T = (lambda * T) + ((1 - lambda) * S)
+        parameter_teacher.data.mul_(teacher_lambda).add_(parameter_student.data, alpha=1.0 - teacher_lambda)
+        
     for parameter_teacher, parameter_student in zip(self.teacher_projectors.parameters(), self.student_projectors.parameters()):
-      parameter_teacher.data = (
-        (1-self.config.teacher_training_lambda)*parameter_student.data+(self.config.teacher_training_lambda)*parameter_teacher.data
-      )
+        parameter_teacher.data.mul_(teacher_lambda).add_(parameter_student.data, alpha=1.0 - teacher_lambda)
 
     for parameter_teacher, parameter_student in zip(self.teacher_global_projector.parameters(), self.student_global_projector.parameters()):
-      parameter_teacher.data = (
-        (1-self.config.teacher_training_lambda)*parameter_student.data+(self.config.teacher_training_lambda)*parameter_teacher.data
-      )
+        parameter_teacher.data.mul_(teacher_lambda).add_(parameter_student.data, alpha=1.0 - teacher_lambda)
+    
 
   @torch.no_grad()
   def teacher_forward(self, pixel_values):

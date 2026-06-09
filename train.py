@@ -22,7 +22,7 @@ def apply_transforms(examples, transform):
 
 if __name__=="__main__":
 	# Load the "320px" subset of Imagenette
-    ds = datasets.load_dataset("BusinessPlatypus/essence_of_imagenet_512")#, cache_dir = "./data/essence_of_imagenet_512")
+    ds = datasets.load_dataset("BusinessPlatypus/essence_of_imagenet_512", cache_dir = "./data/essence_of_imagenet_512")
 
     # Get label info
     labels_list = ds['train'].features['label'].names
@@ -57,8 +57,8 @@ if __name__=="__main__":
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_cnn_former_ssl_corrected_momentum_g4",
-      per_device_train_batch_size=96,
-      per_device_eval_batch_size=96,
+      per_device_train_batch_size=320,
+      per_device_eval_batch_size=320,
       eval_strategy="no",
       do_eval=False,
       save_strategy="steps",
@@ -78,7 +78,7 @@ if __name__=="__main__":
       optim="adamw_torch",
       torch_compile=True,
       torch_compile_backend="inductor",
-      # torch_compile_mode="reduce-overhead",
+      torch_compile_mode="reduce-overhead",
       
     )
     
@@ -91,7 +91,7 @@ if __name__=="__main__":
 
     try:
       trainer.train(
-        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-26301"
+        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-27550"
       )
     except KeyboardInterrupt:
       print("\n[!] Training manually interrupted. Initiating emergency save and upload...")
