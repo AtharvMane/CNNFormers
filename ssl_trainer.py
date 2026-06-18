@@ -1,4 +1,5 @@
 from transformers import Trainer
+from data.augementations import KorniaGPUDataLoaderWrapper
 import torch
 
 class SSLTrainer(Trainer):
@@ -14,36 +15,28 @@ class SSLTrainer(Trainer):
         self._custom_loss_count += 1
 
         if self._image_level_loss_sum is None:
-            # Explicitly clone and detach outside the graph tracking
-            self._image_level_loss_sum = img_loss.detach().item()
-            self._patch_level_loss_sum = patch_loss.detach().item()
+            # Drop the .item() here! Just detach.
+            self._image_level_loss_sum = img_loss.detach()
+            self._patch_level_loss_sum = patch_loss.detach()
         else:
-            self._image_level_loss_sum = self._image_level_loss_sum + img_loss.detach().item()
-            self._patch_level_loss_sum = self._patch_level_loss_sum + patch_loss.detach().item()
+            self._image_level_loss_sum += img_loss.detach()
+            self._patch_level_loss_sum += patch_loss.detach()
 
+    def get_train_dataloader(self):
+        """
+        Override the default train dataloader to ensure that it is compatible with our custom loss accumulation.
+        """
+        dataloader = super().get_train_dataloader()
+        return KorniaGPUDataLoaderWrapper(dataloader, self.model.config, self.args.device)
+    
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         """
         How the loss is computed by Trainer. By default, all models return the loss in the first element.
         We override this to intercept our custom losses.
         """
-        pixel_values = inputs["pixel_values"]
-        curr_dtype = pixel_values.dtype
-        pixel_values = pixel_values.float()
 
-        view1 = model.transform(pixel_values)
-        matrix1 = model.transform.transform_matrix.clone()
-
-        view2 = model.transform(pixel_values)
-        matrix2 = model.transform.transform_matrix.clone()
-
-        model_inputs = {
-            'pixel_values_1': view1.to(curr_dtype),
-            'pixel_values_2': view2.to(curr_dtype),
-            'transform_matrix_1': matrix1.to(curr_dtype),
-            'transform_matrix_2': matrix2.to(curr_dtype),
-        }
         model.update_teacher()
-        outputs = model(**model_inputs)
+        outputs = model(**inputs)
         
         # Extract total loss (required by Trainer for backprop)
         loss = outputs.get("loss")
@@ -63,9 +56,9 @@ class SSLTrainer(Trainer):
         """
         # If we have accumulated losses, average them and add them to the log dictionary
         if self._custom_loss_count > 0:
-            logs["image_level_loss"] = self._image_level_loss_sum / self._custom_loss_count
-            logs["patch_level_loss"] = self._patch_level_loss_sum / self._custom_loss_count
-            
+            logs["image_level_loss"] = (self._image_level_loss_sum / self._custom_loss_count).item()
+            logs["patch_level_loss"] = (self._patch_level_loss_sum / self._custom_loss_count).item()
+
             # Reset the accumulators for the next logging window
             self._image_level_loss_sum = None
             self._patch_level_loss_sum = None

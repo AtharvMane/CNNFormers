@@ -209,35 +209,6 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     for i in range(len(self.config.depths)-1):
       scales.append(2**(i+2))
 
-    with torch.device('cpu'):
-      self.transform = K.AugmentationSequential(
-          K.RandomHorizontalFlip(p=config.horizontal_flip_probability),
-          K.RandomRotation(config.random_rotation_max_angle_degrees),
-          K.RandomResizedCrop(
-            size = config.random_resize_crop_size,
-            scale = config.random_resize_crop_scale,
-            p = config.random_resize_crop_probability
-          ),
-          K.ColorJitter(
-            brightness = config.color_jitter_brightness,
-            contrast = config.color_jitter_contrast,
-            saturation = config.color_jitter_saturation,
-            hue = config.color_jitter_hue,
-            p = config.color_jitter_probability
-          ),
-          K.RandomGrayscale(
-            p=config.random_grayscale_probability,
-            rgb_weights=torch.tensor(config.normalize_mean)
-          ),
-          K.RandomGaussianBlur(
-            kernel_size=config.gaussian_blur_kernel_size,
-            sigma=config.gaussian_blur_sigma,
-            p=config.gaussian_blur_probability
-          ),
-          K.RandomSolarize(p=config.solarize_probability),
-          K.Normalize(mean=config.normalize_mean, std=config.normalize_std),
-          data_keys=['image']
-        )
 
     for i in range(config.num_loss_stages):
       self.student_projectors.append(

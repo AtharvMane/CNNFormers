@@ -63,8 +63,11 @@ class PatchUnPatchMHSA(nn.Module):
         nn.PixelShuffle(upscale_factor=patch_size//2)
     )
 
-    self.projector = nn.Parameter(
-      torch.rand(2*input_dim, input_dim)
+    self.projector = nn.Conv2d(
+        in_channels=2*input_dim, 
+        out_channels=input_dim, 
+        kernel_size=1, 
+        bias=False
     )
     self.activation_fn = nn.GELU()
     self.rms_norm_attn = RMSNorm2d(2*embed_dim)
@@ -97,7 +100,7 @@ class PatchUnPatchMHSA(nn.Module):
     x = self.upscaler(x)
     x = self.activation_fn(x)
     x = torch.cat([x, feats], dim=1)
-    x = torch.einsum("co, bchw->bohw", self.projector, x)
+    x = self.projector(x)
 
     cls_token = self.skipConnectionWithNormAndActGlobal(
       cls_token,
