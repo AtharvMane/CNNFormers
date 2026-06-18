@@ -1,5 +1,5 @@
 from transformers import Trainer
-from data.augementations import KorniaGPUDataLoaderWrapper
+from data_augmentations.augementations import KorniaGPUDataLoaderWrapper
 import torch
 
 class SSLTrainer(Trainer):
