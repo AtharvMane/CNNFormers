@@ -9,6 +9,7 @@ import torchvision.transforms as transforms
 from model.config.cnnformer_config import CNNFormerConfig
 from ssl_trainer import SSLTrainer
 from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
+from callbacks.update_teacher_callback import TeacherEMACallback
 
 # function to apply transforms
 def apply_transforms(examples, transform):
@@ -52,7 +53,7 @@ if __name__=="__main__":
         dropout=0.3,
         dims_per_multi_attention_head=64,
     )
-    model = CNNFormerResNetForPixelLevelRepresentationModeling.from_pretrained("./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-17000/")
+    model = CNNFormerResNetForPixelLevelRepresentationModeling.from_pretrained("./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-28000/")
     # model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
@@ -79,7 +80,7 @@ if __name__=="__main__":
       torch_compile_backend="inductor",
       torch_compile_mode="reduce-overhead",
       dataloader_num_workers=8,
-      dataloader_pin_memory=True      
+      dataloader_pin_memory=True,
     )
     
     trainer = SSLTrainer(
@@ -87,11 +88,12 @@ if __name__=="__main__":
       args=training_args,
       train_dataset=train_ds,
       eval_dataset=val_ds,
+      callbacks=[TeacherEMACallback()]
     )
 
     try:
       trainer.train(
-        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-27550"
+        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-28000"
       )
     except KeyboardInterrupt:
       print("\n[!] Training manually interrupted. Initiating emergency save and upload...")

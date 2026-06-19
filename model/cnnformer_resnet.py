@@ -247,36 +247,36 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
         )
       )
 
-      self.student_global_projector = nn.Sequential(
-        nn.GELU(),
-        nn.Linear(
-          in_features=config.attention_embed_dim,
-          out_features=config.dense_ssl_projection_dim
-        ),
-        nn.GELU(),
-        nn.Linear(
-          in_features=config.dense_ssl_projection_dim,
-          out_features=config.dense_ssl_projection_dim
-        ),
-      )
-
-      self.teacher_global_projector = nn.Sequential(
-        nn.GELU(),
-        nn.Linear(
-          in_features=config.attention_embed_dim,
-          out_features=config.dense_ssl_projection_dim
-        ),
-        nn.GELU(),
-        nn.Linear(
-          in_features=config.dense_ssl_projection_dim,
-          out_features=config.dense_ssl_projection_dim
-        )
-      )
-
       self.losses.append(
         FeatureComparisonLoss(scale_factor=scales[-i-1], temperature=config.loss_temperature)
       )
     
+    self.student_global_projector = nn.Sequential(
+      nn.GELU(),
+      nn.Linear(
+        in_features=config.attention_embed_dim,
+        out_features=config.dense_ssl_projection_dim
+      ),
+      nn.GELU(),
+      nn.Linear(
+        in_features=config.dense_ssl_projection_dim,
+        out_features=config.dense_ssl_projection_dim
+      ),
+    )
+
+    self.teacher_global_projector = nn.Sequential(
+      nn.GELU(),
+      nn.Linear(
+        in_features=config.attention_embed_dim,
+        out_features=config.dense_ssl_projection_dim
+      ),
+      nn.GELU(),
+      nn.Linear(
+        in_features=config.dense_ssl_projection_dim,
+        out_features=config.dense_ssl_projection_dim
+      )
+    )
+
     self.global_loss = InfoNCELoss(temperature=config.loss_temperature)
     self.initialize_teacher()
     self.post_init()

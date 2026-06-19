@@ -91,8 +91,6 @@ class InfoNCELoss(nn.Module):
             device = embeddings1.device,
         )
 
-        if (labels==-100).all():
-            return 0.0*embeddings1.sum()
 
         scores = torch.bmm(embeddings1, embeddings2.transpose(1,2))/self.temperature
         scores_ab = scores.clone()
@@ -103,11 +101,8 @@ class InfoNCELoss(nn.Module):
             ).masked_fill_(
                 invalid_embeddings_mask2.transpose(1,2), -1e9
             )
-
-        loss = self.ce_loss(scores_ab, labels)
-        loss = loss + self.ce_loss(scores_ab.transpose(1,2), labels)
-
-        return loss
+        loss = self.ce_loss(scores_ab, labels) + self.ce_loss(scores_ab.transpose(1,2), labels)
+        return torch.nan_to_num(loss, nan=0.0)
 
     @jaxtyped(typechecker=typechecker)
     @torch.no_grad()

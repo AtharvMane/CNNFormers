@@ -15,7 +15,8 @@ class PatchUnPatchMHSA(nn.Module):
       dropout: float,
       upscaler_kernel_size: int = 5,
       dims_per_head: int = 64,
-      is_dmsa: bool | None = None
+      is_dmsa: bool | None = None,
+      return_attention: bool = False
     ):
     super(PatchUnPatchMHSA, self).__init__()
     assert patch_size%4==0, "patch size needs to be divisible by 4"
@@ -75,6 +76,8 @@ class PatchUnPatchMHSA(nn.Module):
 
     self.rms_norm_out = RMSNorm2d(input_dim)
     self.is_dmsa = is_dmsa
+
+    self.return_attention = return_attention
 
   @jaxtyped(typechecker=typechecker)
   def forward(
@@ -171,9 +174,11 @@ class PatchUnPatchMHSA(nn.Module):
   ]:
     dmsa_mask = torch.eye(input_tokens.shape[1], device=input_tokens.device)
     x = input_tokens
+
     x, attention = self.self_attn(
       x,x,x,
-      attn_mask= dmsa_mask if self.is_dmsa else None
+      attn_mask= dmsa_mask if self.is_dmsa else None,
+      need_weights=self.return_attention
     )
 
     return  x[:, 0], x[:,1:], attention

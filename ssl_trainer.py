@@ -35,7 +35,6 @@ class SSLTrainer(Trainer):
         We override this to intercept our custom losses.
         """
 
-        model.update_teacher()
         outputs = model(**inputs)
         
         # Extract total loss (required by Trainer for backprop)
