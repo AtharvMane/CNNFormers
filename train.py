@@ -1,7 +1,18 @@
 import os
 import glob
 
+# ── Torch compile cache ────────────────────────────────────────────────────────
+# Must be set BEFORE torch is imported so CUDA and Inductor pick them up.
+_COMPILE_CACHE = "./torch_compile_cache"
+os.environ["TORCHINDUCTOR_CACHE_DIR"]    = f"{_COMPILE_CACHE}/inductor"
+os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"   # persist compiled FX graphs
+os.environ["TRITON_CACHE_DIR"]           = f"{_COMPILE_CACHE}/triton"  # persist autotuned kernel configs
+# ──────────────────────────────────────────────────────────────────────────────
+
 import torch
+import torch._inductor.config as inductor_config
+inductor_config.fx_graph_cache = True   # belt-and-suspenders alongside the env var
+
 import datasets
 from transformers import TrainingArguments
 import torchvision.transforms as transforms
@@ -53,13 +64,13 @@ if __name__=="__main__":
         dropout=0.3,
         dims_per_multi_attention_head=64,
     )
-    model = CNNFormerResNetForPixelLevelRepresentationModeling.from_pretrained("./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-28000/")
+    model = CNNFormerResNetForPixelLevelRepresentationModeling.from_pretrained("./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-28000_new/")
     # model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
       output_dir="./checkpoints_cnn_former_ssl_corrected_momentum_g4",
-      per_device_train_batch_size=320,
-      per_device_eval_batch_size=320,
+      per_device_train_batch_size=200,
+      per_device_eval_batch_size=200,
       eval_strategy="no",
       do_eval=False,
       save_strategy="steps",
@@ -81,6 +92,8 @@ if __name__=="__main__":
       torch_compile_mode="reduce-overhead",
       dataloader_num_workers=8,
       dataloader_pin_memory=True,
+      dataloader_drop_last=True,         # CUDA graphs require a static batch size;
+                                         # without this the last partial batch triggers a recompile
     )
     
     trainer = SSLTrainer(
