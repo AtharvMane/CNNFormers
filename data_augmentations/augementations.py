@@ -1,14 +1,12 @@
 import torch
 import kornia.augmentation as K
 from model.config.cnnformer_config import CNNFormerConfig
-class KorniaGPUDataLoaderWrapper:
+class KorniaGPUTransform:
     def __init__(
             self,
-            dataloader,
             config: CNNFormerConfig,
             device: torch.device
         ):
-        self.dataloader = dataloader
         self.device = device
         
         # Build the sequence directly from your serialized config
@@ -59,33 +57,29 @@ class KorniaGPUDataLoaderWrapper:
             ],
             device=self.device
         )
-    def __iter__(self):
-        for batch in self.dataloader:
-            # 1. Move raw CPU batch to device and ensure it's float32 for Kornia
-            pixel_values = batch["pixel_values"].to(self.device, dtype=torch.float32)
+    
+    def __call__(self, batch):
+        pixel_values = batch["pixel_values"].to(self.device, dtype=torch.float32)
 
-            # 2. Generate Views on GPU (No autograd needed for augmentations)
-            with torch.no_grad():
-                view1 = self.transform(pixel_values)
-                matrix1 = self.transform.transform_matrix.clone()
+        # 2. Generate Views on GPU (No autograd needed for augmentations)
+        with torch.no_grad():
+            view1 = self.transform(pixel_values)
+            matrix1 = self.transform.transform_matrix.clone()
 
-                view2 = self.transform(pixel_values)
-                matrix2 = self.transform.transform_matrix.clone()
+            view2 = self.transform(pixel_values)
+            matrix2 = self.transform.transform_matrix.clone()
 
-            matrix1 = self.noralizer @ matrix1 @ self.un_normalizer
-            matrix2 = self.noralizer @ matrix2 @ self.un_normalizer
-            matrix1 = matrix1[:, :2, :]
-            matrix2 = matrix2[:, :2, :]
-            # 3. Inject into the batch dictionary
-            batch["pixel_values_1"] = view1.to(memory_format=torch.channels_last)
-            batch["pixel_values_2"] = view2.to(memory_format=torch.channels_last)
-            batch["transform_matrix_1"] = matrix1
-            batch["transform_matrix_2"] = matrix2
-            
-            # Drop the original pixel_values to save VRAM before hitting the model
-            del batch["pixel_values"]
+        matrix1 = self.noralizer @ matrix1 @ self.un_normalizer
+        matrix2 = self.noralizer @ matrix2 @ self.un_normalizer
+        matrix1 = matrix1[:, :2, :]
+        matrix2 = matrix2[:, :2, :]
+        # 3. Inject into the batch dictionary
+        batch["pixel_values_1"] = view1.to(memory_format=torch.channels_last)
+        batch["pixel_values_2"] = view2.to(memory_format=torch.channels_last)
+        batch["transform_matrix_1"] = matrix1
+        batch["transform_matrix_2"] = matrix2
 
-            yield batch
+        # Drop the original pixel_values to save VRAM before hitting the model
+        del batch["pixel_values"]
 
-    def __len__(self):
-        return len(self.dataloader)
+        return batch

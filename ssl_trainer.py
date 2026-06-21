@@ -1,5 +1,5 @@
 from transformers import Trainer
-from data_augmentations.augementations import KorniaGPUDataLoaderWrapper
+from data_augmentations.augementations import KorniaGPUTransform
 import torch
 
 class SSLTrainer(Trainer):
@@ -11,31 +11,25 @@ class SSLTrainer(Trainer):
         self._patch_level_loss_sum = None
         self._custom_loss_count = 0
 
+        self.transform = KorniaGPUTransform(self.model.config, self.args.device)
+
     @torch._dynamo.disable
     def _accumulate_custom_metrics(self, img_loss, patch_loss):
         self._custom_loss_count += 1
 
         if self._image_level_loss_sum is None:
             # Drop the .item() here! Just detach.
-            self._image_level_loss_sum = img_loss.detach()
-            self._patch_level_loss_sum = patch_loss.detach()
+            self._image_level_loss_sum = img_loss.detach().clone()
+            self._patch_level_loss_sum = patch_loss.detach().clone()
         else:
-            self._image_level_loss_sum += img_loss.detach()
-            self._patch_level_loss_sum += patch_loss.detach()
-
-    def get_train_dataloader(self):
-        """
-        Override the default train dataloader to ensure that it is compatible with our custom loss accumulation.
-        """
-        dataloader = super().get_train_dataloader()
-        return KorniaGPUDataLoaderWrapper(dataloader, self.model.config, self.args.device)
-    
+            self._image_level_loss_sum += img_loss.detach().clone()
+            self._patch_level_loss_sum += patch_loss.detach().clone()
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         """
         How the loss is computed by Trainer. By default, all models return the loss in the first element.
         We override this to intercept our custom losses.
         """
-
+        inputs = self.transform(inputs)
         outputs = model(**inputs)
         
         # Extract total loss (required by Trainer for backprop)
