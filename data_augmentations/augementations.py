@@ -1,8 +1,13 @@
 import torch
 import kornia.augmentation as K
-
+from model.config.cnnformer_config import CNNFormerConfig
 class KorniaGPUDataLoaderWrapper:
-    def __init__(self, dataloader, config, device):
+    def __init__(
+            self,
+            dataloader,
+            config: CNNFormerConfig,
+            device: torch.device
+        ):
         self.dataloader = dataloader
         self.device = device
         
@@ -10,7 +15,7 @@ class KorniaGPUDataLoaderWrapper:
         # and immediately map it to the target GPU/XLA device!
         self.transform = K.AugmentationSequential(
             K.RandomHorizontalFlip(p=config.horizontal_flip_probability),
-            K.RandomRotation(config.random_rotation_max_angle_degrees),
+            # K.RandomRotation(config.random_rotation_max_angle_degrees),
             K.RandomResizedCrop(
                 size=config.random_resize_crop_size,
                 scale=config.random_resize_crop_scale,
@@ -37,6 +42,23 @@ class KorniaGPUDataLoaderWrapper:
             data_keys=['image']
         ).to(self.device) 
 
+        H, W = config.random_resize_crop_size
+        self.un_normalizer = torch.tensor(
+            [
+                [(W-1)/2, 0.0, (W-1)/2],
+                [0, (H-1)/2, (H-1)/2],
+                [0,      0,       1]
+            ],
+            device=self.device
+        )
+        self.noralizer = torch.tensor(
+            [
+                [2/(W-1), 0.0, -1],
+                [0, 2/(H-1), -1],
+                [0,      0,  1]
+            ],
+            device=self.device
+        )
     def __iter__(self):
         for batch in self.dataloader:
             # 1. Move raw CPU batch to device and ensure it's float32 for Kornia
@@ -50,9 +72,13 @@ class KorniaGPUDataLoaderWrapper:
                 view2 = self.transform(pixel_values)
                 matrix2 = self.transform.transform_matrix.clone()
 
+            matrix1 = self.noralizer @ matrix1 @ self.un_normalizer
+            matrix2 = self.noralizer @ matrix2 @ self.un_normalizer
+            matrix1 = matrix1[:, :2, :]
+            matrix2 = matrix2[:, :2, :]
             # 3. Inject into the batch dictionary
-            batch["pixel_values_1"] = view1
-            batch["pixel_values_2"] = view2
+            batch["pixel_values_1"] = view1.to(memory_format=torch.channels_last)
+            batch["pixel_values_2"] = view2.to(memory_format=torch.channels_last)
             batch["transform_matrix_1"] = matrix1
             batch["transform_matrix_2"] = matrix2
             

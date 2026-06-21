@@ -6,6 +6,7 @@ class SSLTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Initialize accumulators
+        self.model = self.model.to(device=self.args.device, memory_format=torch.channels_last)
         self._image_level_loss_sum = None
         self._patch_level_loss_sum = None
         self._custom_loss_count = 0
@@ -80,5 +81,4 @@ class SSLTrainerXLA(SSLTrainer):
         if training:
             print("[INFO] Explicitly compiling model with torch.compile for OpenXLA...")
             model = torch.compile(model, backend="openxla")
-            
         return model

@@ -32,7 +32,6 @@ class PatchUnPatchMHSA(nn.Module):
           stride=(patch_size//2, patch_size//2),
           groups=input_dim,
           padding=patch_size//4,
-          padding_mode='reflect'
       ),
       nn.Conv2d(
           input_dim,
@@ -86,7 +85,7 @@ class PatchUnPatchMHSA(nn.Module):
       cls_token: Float[torch.Tensor, "batch_size {self.embed_dim}"]
     )->tuple[
       Float[torch.Tensor, "batch_size C_in H_in W_in"],
-      Float[torch.Tensor, "batch_size H_in*W_in*4/({self.patch_size}*{self.patch_size})+1 H_in*W_in*4/({self.patch_size}*{self.patch_size})+1"],
+      Float[torch.Tensor, "batch_size H_in*W_in*4/({self.patch_size}*{self.patch_size})+1 H_in*W_in*4/({self.patch_size}*{self.patch_size})+1"] | None,
       Float[torch.Tensor, "batch_size {self.embed_dim}"]
     ]:
     x_q = self.get_inprojection(feats)
@@ -170,9 +169,9 @@ class PatchUnPatchMHSA(nn.Module):
   )->tuple[
     Float[torch.Tensor, "batch_size {self.embed_dim}"],
     Float[torch.Tensor, "batch_size N-1 {self.embed_dim}"],
-    Float[torch.Tensor, "batch_size N N"],
+    Float[torch.Tensor, "batch_size N N"] | None,
   ]:
-    dmsa_mask = torch.eye(input_tokens.shape[1], device=input_tokens.device)
+    dmsa_mask = torch.eye(input_tokens.shape[1], device=input_tokens.device) if self.is_dmsa else None 
     x = input_tokens
 
     x, attention = self.self_attn(
