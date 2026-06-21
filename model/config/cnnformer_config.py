@@ -46,7 +46,7 @@ class CNNFormerConfig(ResNetConfig):
 
         gaussian_blur_kernel_size: float | tuple[float, float] | list[float] = (23, 23),
         gaussian_blur_sigma: float | tuple[float, float] | list[float] = (0.1, 2.0),
-        gaussian_blur_probability: float = 1.0,
+        gaussian_blur_probability: float = 0.5,
 
         solarize_probability: float = 0.1,
 
