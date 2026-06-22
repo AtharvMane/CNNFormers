@@ -1,9 +1,9 @@
 import os
 import glob
-
+import shutil
 # ── Torch compile cache ────────────────────────────────────────────────────────
 # Must be set BEFORE torch is imported so CUDA and Inductor pick them up.
-_COMPILE_CACHE = "./torch_compile_cache"
+_COMPILE_CACHE = "/content/torch_compile_cache_a100"
 os.environ["TORCHINDUCTOR_CACHE_DIR"]    = f"{_COMPILE_CACHE}/inductor"
 os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"   # persist compiled FX graphs
 os.environ["TRITON_CACHE_DIR"]           = f"{_COMPILE_CACHE}/triton"  # persist autotuned kernel configs
@@ -21,6 +21,8 @@ from model.config.cnnformer_config import CNNFormerConfig
 from ssl_trainer import SSLTrainer
 from model.cnnformer_resnet import CNNFormerResNetForPixelLevelRepresentationModeling
 from callbacks.update_teacher_callback import TeacherEMACallback
+
+torch.set_float32_matmul_precision('high')
 
 # function to apply transforms
 def apply_transforms(examples, transform):
@@ -68,7 +70,7 @@ if __name__=="__main__":
     # model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
-      output_dir="./checkpoints_cnn_former_ssl_corrected_momentum_g4",
+      output_dir="./checkpoints_cnn_former_ssl_corrected_momentum_a100",
       per_device_train_batch_size=200,
       per_device_eval_batch_size=200,
       eval_strategy="no",
@@ -85,12 +87,13 @@ if __name__=="__main__":
       run_name="cnnformer_ssl",
       weight_decay=1e-4,
       remove_unused_columns=False,
+      tf32=False,
       bf16=True,
       optim="adamw_torch",
       torch_compile=True,
       torch_compile_backend="inductor",
-      torch_compile_mode="reduce-overhead",
-      dataloader_num_workers=8,
+      torch_compile_mode="max-autotune",
+      dataloader_num_workers=12,
       dataloader_pin_memory=True,
       dataloader_drop_last=True,         # CUDA graphs require a static batch size;
                                          # without this the last partial batch triggers a recompile
@@ -106,7 +109,7 @@ if __name__=="__main__":
 
     try:
       trainer.train(
-        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-28000"
+        # resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-28000"
       )
     except KeyboardInterrupt:
       print("\n[!] Training manually interrupted. Initiating emergency save and upload...")
@@ -114,14 +117,3 @@ if __name__=="__main__":
       # 1. Force the trainer to save a full checkpoint (model + optimizer + scheduler + state)
       # We use the internal method _save_checkpoint to ensure it formats exactly like a standard step checkpoint
       trainer._save_checkpoint(model=trainer.model, trial=None)
-      print("Local checkpoint saved.")
-
-      # 2. Find the most recently created checkpoint directory
-      output_dir = training_args.output_dir
-      checkpoints = glob.glob(os.path.join(output_dir, "checkpoint-*"))
-      
-      if checkpoints:
-          latest_checkpoint = max(checkpoints, key=os.path.getmtime)
-          checkpoint_name = os.path.basename(latest_checkpoint)
-      else:
-          print("\n[!] No checkpoints found to upload.")
