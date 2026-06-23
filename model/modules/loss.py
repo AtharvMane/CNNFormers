@@ -38,7 +38,8 @@ class InfoNCELoss(nn.Module):
         invalid_embeddings_mask1: Bool[torch.Tensor, "batch_size num_embeddings 1"] | None = None,
         invalid_embeddings_mask2: Bool[torch.Tensor, "batch_size num_embeddings 1"] | None = None,
     ):
-        
+        embeddings1 = F.normalize(embeddings1, dim = 2)
+        embeddings2 = F.normalize(embeddings2, dim = 2)
         if invalid_embeddings_mask1 is None or invalid_embeddings_mask2 is None:
             ignore_mask = None
         else:
