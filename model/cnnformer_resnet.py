@@ -346,8 +346,8 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       teacher_global_feats = self.teacher_global_projector(teacher_outs.last_global_hidden_state)
 
     image_level_loss = self.global_loss(
-      student_global_feats[None],
-      teacher_global_feats[None],
+      student_global_feats,
+      teacher_global_feats,
     )
 
     patch_level_loss = pixel_values_1.new_zeros(1).squeeze()

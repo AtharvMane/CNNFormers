@@ -33,35 +33,34 @@ class InfoNCELoss(nn.Module):
     @jaxtyped(typechecker=typechecker)
     def forward(
         self,
-        embeddings1: Float[torch.Tensor, "batch_size num_embeddings embed_dim"],
-        embeddings2: Float[torch.Tensor, "batch_size num_embeddings embed_dim"],
-        invalid_embeddings_mask1: Bool[torch.Tensor, "batch_size num_embeddings 1"] | None = None,
-        invalid_embeddings_mask2: Bool[torch.Tensor, "batch_size num_embeddings 1"] | None = None,
+        embeddings1: Float[torch.Tensor, "num_embeddings embed_dim"],
+        embeddings2: Float[torch.Tensor, "num_embeddings embed_dim"],
+        invalid_embeddings_mask1: Bool[torch.Tensor, "num_embeddings 1"] | None = None,
+        invalid_embeddings_mask2: Bool[torch.Tensor, "num_embeddings 1"] | None = None,
     ):
-        embeddings1 = F.normalize(embeddings1, dim = 2)
-        embeddings2 = F.normalize(embeddings2, dim = 2)
+        embeddings1 = F.normalize(embeddings1, dim = 1)
+        embeddings2 = F.normalize(embeddings2, dim = 1)
         if invalid_embeddings_mask1 is None or invalid_embeddings_mask2 is None:
             ignore_mask = None
         else:
-            ignore_mask = (invalid_embeddings_mask1 | invalid_embeddings_mask2).squeeze(dim=2)
+            ignore_mask = (invalid_embeddings_mask1 | invalid_embeddings_mask2).squeeze(dim=1)
 
         labels = self.get_labels(
-            batch_size = embeddings1.shape[0],
             ignore_mask=ignore_mask,
-            num_labels = embeddings1.shape[1],
+            num_labels = embeddings1.shape[0],
             device = embeddings1.device,
         )
 
 
-        scores_ab = torch.bmm(embeddings1, embeddings2.transpose(1,2))/self.temperature
+        scores_ab = torch.matmul(embeddings1, embeddings2.transpose(0,1))/self.temperature
 
         if invalid_embeddings_mask1 is not None or invalid_embeddings_mask2 is not None:
             scores_ab = scores_ab.masked_fill_(
                 invalid_embeddings_mask1, -1e9
             ).masked_fill_(
-                invalid_embeddings_mask2.transpose(1,2), -1e9
+                invalid_embeddings_mask2.transpose(0,1), -1e9
             )
-        loss = self.ce_loss(scores_ab, labels) + self.ce_loss(scores_ab.transpose(1,2), labels)
+        loss = self.ce_loss(scores_ab, labels) + self.ce_loss(scores_ab.transpose(0,1), labels)
         return torch.nan_to_num(loss, nan=0.0)
 
     @jaxtyped(typechecker=typechecker)
@@ -69,13 +68,12 @@ class InfoNCELoss(nn.Module):
     def get_labels(
             self,
             num_labels:int,
-            batch_size : int,
             device: torch.device,
-            ignore_mask: Bool[torch.Tensor, "batch_size {num_labels}"] | None
-        )->Int[torch.Tensor, "batch_size {num_labels}"]:
+            ignore_mask: Bool[torch.Tensor, "{num_labels}"] | None
+        )->Int[torch.Tensor, "{num_labels}"]:
         labels = torch.arange(
             num_labels, device=device
-        )[None].repeat(batch_size,1)
+        )
         if ignore_mask is not None:
             labels.masked_fill_(ignore_mask, -100)
         return labels
@@ -110,10 +108,10 @@ class FeatureComparisonLoss(nn.Module):
         )
 
         loss = self.info_nce_loss(
-            embeddings1 = sampled_features_1,
-            embeddings2 = sampled_features_2,
-            invalid_embeddings_mask1 = mask1,
-            invalid_embeddings_mask2 = mask2
+            embeddings1 = sampled_features_1.flatten(0,1),
+            embeddings2 = sampled_features_2.flatten(0,1),
+            invalid_embeddings_mask1 = mask1.flatten(0,1),
+            invalid_embeddings_mask2 = mask2.flatten(0,1)
         )
 
         return loss
