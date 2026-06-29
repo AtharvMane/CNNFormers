@@ -314,12 +314,13 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
   def teacher_forward(self, pixel_values):
     return self.backbone_teacher(pixel_values, output_hidden_states=True)
 
+  @jaxtyped(typechecker=typechecker)
   def forward(
       self,
       pixel_values_1: Float[torch.Tensor, "batch_size C H W"],
       pixel_values_2: Float[torch.Tensor, "batch_size C H W"],
-      transform_matrix_1: Float[torch.Tensor, "batch_size 3 3"],
-      transform_matrix_2: Float[torch.Tensor, "batch_size 3 3"],
+      transform_matrix_1: Float[torch.Tensor, "batch_size 2 3"],
+      transform_matrix_2: Float[torch.Tensor, "batch_size 2 3"],
       labels = None
   )->DenseContrastiveOutput:
     student_outs = self.backbone_student(pixel_values_1, output_hidden_states=True)
@@ -385,6 +386,7 @@ class CNNFormerForImageClassification(CNNFormerPretrainedModel):
     self.loss_fct = nn.CrossEntropyLoss()
     self.post_init()
 
+  @jaxtyped(typechecker=typechecker)
   def forward(
       self,
       pixel_values,
