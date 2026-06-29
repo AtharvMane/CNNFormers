@@ -2,6 +2,7 @@ import os
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint as grad_ckpt
 
 from transformers import ResNetModel
 from transformers.modeling_outputs import ImageClassifierOutput, BackboneOutput
@@ -52,6 +53,7 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
       config: CNNFormerConfig
     ):
     super(CNNFormerResNetModel, self).__init__(config = config)
+    self.gradient_checkpointing = False
     self.config = config
 
     self.cls_token = nn.Parameter(torch.rand(self.config.attention_embed_dim))
@@ -107,6 +109,10 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
 
     self.post_init()
 
+  def _set_gradient_checkpointing(self, module, value=False):
+    if isinstance(module, self.__class__):
+      module.gradient_checkpointing = value
+
   @jaxtyped(typechecker=typechecker)
   def forward(
       self,
@@ -122,13 +128,22 @@ class CNNFormerResNetModel(CNNFormerPretrainedModel):
     )
 
     cls_token = self.cls_token[None].repeat(pixel_values.shape[0], 1)
-    hidden_state, attention, cls_token = self.self_attn_stem(self.stem(pixel_values), cls_token = cls_token)
+
+    if self.gradient_checkpointing or self.training:
+      resnet_stem_out = grad_ckpt(self.stem, pixel_values, use_reentrant=False)
+      hidden_state, attention, cls_token = grad_ckpt(self.self_attn_stem, resnet_stem_out, cls_token, use_reentrant=False)
+    else:
+      hidden_state, attention, cls_token = self.self_attn_stem(self.stem(pixel_values), cls_token = cls_token)
     hidden_states = (hidden_state,)
     attentions = (attention,)
 
     for idx, (resnet_stage, attention_stage) in enumerate(zip(self.resnet_stages, self.attention_stages)):
-      hidden_state = resnet_stage(hidden_states[-1])
-      hidden_state, attention, cls_token = attention_stage(hidden_state, cls_token = cls_token)
+      if self.gradient_checkpointing or self.training:
+        hidden_state = grad_ckpt(resnet_stage, hidden_states[-1], use_reentrant=False)
+        hidden_state, attention, cls_token = grad_ckpt(attention_stage, hidden_state, cls_token = cls_token, use_reentrant=False)
+      else:
+        hidden_state = resnet_stage(hidden_states[-1])
+        hidden_state, attention, cls_token = attention_stage(hidden_state, cls_token = cls_token)
       hidden_states+=(hidden_state,)
       attentions+=(attention,)
 
