@@ -28,15 +28,15 @@ torch.set_float32_matmul_precision('high')
 def apply_transforms(examples, transform):
     examples['pixel_values'] = [transform(image.convert('RGB')) for image in examples['image']]
     examples['labels'] = examples.pop('label')
-    del examples['features']
-    del examples["image"]
+    examples.pop('features', None)
+    examples.pop('image', None)
     return examples
 
 
 
 if __name__=="__main__":
 	# Load the "320px" subset of Imagenette
-    ds = datasets.load_dataset("BusinessPlatypus/essence_of_imagenet_512", cache_dir = "./data/essence_of_imagenet_512")
+    ds = datasets.load_dataset("benjamin-paine/imagenet-1k-256x256", cache_dir = "imagenet-1k-256x256")
 
     # Get label info
     labels_list = ds['train'].features['label'].names
@@ -66,7 +66,7 @@ if __name__=="__main__":
         dropout=0.3,
         dims_per_multi_attention_head=64,
     )
-    model = CNNFormerResNetForPixelLevelRepresentationModeling.from_pretrained("./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-28000_new/")
+    model = CNNFormerResNetForPixelLevelRepresentationModeling.from_pretrained("./checkpoints_cnn_former_ssl_corrected_momentum_a100/checkpoint-81649/")
     # model = CNNFormerResNetForPixelLevelRepresentationModeling(config=config)
   
     training_args = TrainingArguments(
@@ -76,7 +76,7 @@ if __name__=="__main__":
       eval_strategy="no",
       do_eval=False,
       save_strategy="steps",
-      save_steps=1000,
+      save_steps=5000,
       report_to="wandb",
       num_train_epochs=300,
       learning_rate=1e-4,
@@ -90,6 +90,7 @@ if __name__=="__main__":
       tf32=False,
       bf16=True,
       optim="adamw_torch",
+      lr_scheduler_type="cosine",
       torch_compile=True,
       torch_compile_backend="inductor",
       torch_compile_mode="max-autotune",
@@ -109,7 +110,7 @@ if __name__=="__main__":
 
     try:
       trainer.train(
-        # resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_g4/checkpoint-28000"
+        resume_from_checkpoint="./checkpoints_cnn_former_ssl_corrected_momentum_a100/checkpoint-81649"
       )
     except KeyboardInterrupt:
       print("\n[!] Training manually interrupted. Initiating emergency save and upload...")
