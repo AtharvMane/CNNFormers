@@ -89,7 +89,7 @@ if __name__=="__main__":
       remove_unused_columns=False,
       tf32=False,
       bf16=True,
-      optim="adamw_torch",
+      optim="adamw_8bit",
       lr_scheduler_type="cosine",
       torch_compile=True,
       torch_compile_backend="inductor",

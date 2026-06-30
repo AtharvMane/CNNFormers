@@ -133,7 +133,7 @@ class KorniaGPUTransform:
         masks1 = []
         views2_coords = []
         masks2 = []
-        
+
         B, C, H, W = view1.shape
         for idx, scale in enumerate(self.scales):
             view1_coords, view2_coords, mask1, mask2 = SSLImgProcUtils.get_coords_with_masks_and_labels(
@@ -150,8 +150,8 @@ class KorniaGPUTransform:
             masks2.append(mask2)            
 
 
-        batch["pixel_values_1"] = view1.to(memory_format=torch.channels_last)
-        batch["pixel_values_2"] = view2.to(memory_format=torch.channels_last)
+        batch["pixel_values_1"] = view1#.to(memory_format=torch.channels_last)
+        batch["pixel_values_2"] = view2#.to(memory_format=torch.channels_last)
         batch["pixel_values_1_coords"] = views1_coords
         batch["pixel_values_2_coords"] = views2_coords
         batch["pixel_values_1_masks"] = masks1
