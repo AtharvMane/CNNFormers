@@ -108,9 +108,9 @@ class KorniaGPUTransform:
             device=self.device
         )
 
-        scales = [2,4] if config.downsample_in_first_stage else [2,2]
+        scales = [H//2,H//4] if config.downsample_in_first_stage else [H//2,H//2]
         for i in range(len(config.depths)-1):
-            scales.append(256//2**(i+2))
+            scales.append(H//2**(i+2))
         
         self.scales = scales[-config.num_loss_stages:]
         self.num_points = config.num_loss_points
@@ -133,8 +133,9 @@ class KorniaGPUTransform:
         masks1 = []
         views2_coords = []
         masks2 = []
+        
+        B, C, H, W = view1.shape
         for idx, scale in enumerate(self.scales):
-            B, C, H, W = view1.shape
             view1_coords, view2_coords, mask1, mask2 = SSLImgProcUtils.get_coords_with_masks_and_labels(
                 matrix1,
                 matrix2,
@@ -142,8 +143,6 @@ class KorniaGPUTransform:
                 scale,
                 self.num_points*(idx+1)
             )
-
-            print("\n\n\n", H*W,view1_coords.shape, view2_coords.shape, mask1.shape, mask2.shape,"\n\n\n")
 
             views1_coords.append(view1_coords)
             views2_coords.append(view2_coords)

@@ -37,7 +37,7 @@ class InfoNCELoss(nn.Module):
 
         scores_ab = torch.matmul(embeddings1, embeddings2.transpose(0,1))/self.temperature
 
-        if invalid_embeddings_mask1 is not None or invalid_embeddings_mask2 is not None:
+        if invalid_embeddings_mask1 is not None and invalid_embeddings_mask2 is not None:
             scores_ab = scores_ab.masked_fill_(
                 invalid_embeddings_mask1, -1e9
             ).masked_fill_(
@@ -100,4 +100,4 @@ class FeatureComparisonLoss(nn.Module):
         features: Float[torch.Tensor,  "batch_size C H W"]
     )->Float[torch.Tensor, "batch_size num_points C"]:
         grid_sample = F.grid_sample(features, transformed_coords, align_corners=False)[:,:,:,0]
-        return F.normalize(grid_sample, dim = 1).transpose(1,2).contiguous()
+        return grid_sample.transpose(1,2).contiguous()
