@@ -17,7 +17,8 @@ from model.modules.loss import FeatureComparisonLoss, InfoNCELoss
 
 from dataclasses import dataclass
 
-from jaxtyping import Float, jaxtyped
+from jaxtyping import Float, Bool, jaxtyped
+from typing import List
 from beartype import beartype as typechecker
 
 import kornia.augmentation as K
@@ -263,7 +264,7 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       )
 
       self.losses.append(
-        FeatureComparisonLoss(scale_factor=scales[-i-1], temperature=config.loss_temperature)
+        FeatureComparisonLoss(temperature=config.loss_temperature)
       )
     
     self.student_global_projector = nn.Sequential(
@@ -334,8 +335,10 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       self,
       pixel_values_1: Float[torch.Tensor, "batch_size C H W"],
       pixel_values_2: Float[torch.Tensor, "batch_size C H W"],
-      transform_matrix_1: Float[torch.Tensor, "batch_size 2 3"],
-      transform_matrix_2: Float[torch.Tensor, "batch_size 2 3"],
+      pixel_values_1_coords: List[Float[torch.Tensor, "batch_size ... 1 2"]],
+      pixel_values_2_coords: List[Float[torch.Tensor, "batch_size ... 1 2"]],
+      pixel_values_1_masks: List[Bool[torch.Tensor, "batch_size ... 1"]],
+      pixel_values_2_masks: List[Bool[torch.Tensor, "batch_size ... 1"]],
       labels = None
   )->DenseContrastiveOutput:
     student_outs = self.backbone_student(pixel_values_1, output_hidden_states=True)
@@ -353,15 +356,21 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
     patch_level_loss = pixel_values_1.new_zeros(1).squeeze()
 
     for idx, (loss_fn, student_projector, teacher_projector) in enumerate(
-      zip(self.losses, self.student_projectors, self.teacher_projectors)
+      zip(
+        self.losses,
+        self.student_projectors,
+        self.teacher_projectors,
+      )
     ): 
       student_features = student_projector(student_outs.dense_hidden_states[-idx-1])
       teacher_features = teacher_projector(teacher_outs.dense_hidden_states[-idx-1])
       patch_level_loss+=loss_fn(
         features_1 = student_features,
         features_2 = teacher_features,
-        transform_matrix_1 = transform_matrix_1,
-        transform_matrix_2 = transform_matrix_2
+        transformed_coords_1 = pixel_values_1_coords[-idx-1],
+        transformed_coords_2 = pixel_values_2_coords[-idx-1],
+        mask1 = pixel_values_1_masks[-idx-1],
+        mask2 = pixel_values_2_masks[-idx-1],
       )
 
     return DenseContrastiveOutput(

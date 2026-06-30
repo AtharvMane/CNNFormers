@@ -55,6 +55,7 @@ class CNNFormerConfig(ResNetConfig):
 
         # SSL Loss Params
         loss_temperature: float = 0.07,
+        num_loss_points: int = 64,
         **kwargs
     ):
         assert len(hidden_sizes)==len(depths), "Recieved unequal number of depths and hidden_sizes. Specify a hidden size for reach element in depth"
@@ -101,3 +102,4 @@ class CNNFormerConfig(ResNetConfig):
         self.normalize_std = normalize_std
 
         self.loss_temperature = loss_temperature
+        self.num_loss_points = num_loss_points

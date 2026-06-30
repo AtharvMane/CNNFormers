@@ -7,23 +7,6 @@ from jaxtyping import jaxtyped, Float, Bool, Int
 from beartype import beartype as typechecker
 
 
-class SSLImgProcUtils:
-    @staticmethod
-    @jaxtyped(typechecker=typechecker)
-    @torch.no_grad()
-    def get_masks(
-            transformed_coords_1: Float[torch.Tensor, "batch_size num_points 1 2"],
-            transformed_coords_2: Float[torch.Tensor, "batch_size num_points 1 2"]
-    )->tuple[
-        Bool[torch.Tensor, "batch_size num_points 1"],
-        Bool[torch.Tensor, "batch_size num_points 1"]
-    ]:
-        mask1 = (transformed_coords_1[:,:,:,0].abs()<1)&(transformed_coords_1[:,:,:,1].abs()<1)
-        mask2 = (transformed_coords_2[:,:,:,0].abs()<1)&(transformed_coords_2[:,:,:,1].abs()<1)
-        return ~mask1, ~mask2
-
-
-
 class InfoNCELoss(nn.Module):
     def __init__(self, temperature: float):
         super().__init__()
@@ -84,10 +67,8 @@ class FeatureComparisonLoss(nn.Module):
     def __init__(
             self,
             temperature: float,
-            scale_factor:int = 2,
         ):
         super().__init__()
-        self.scale_factor=scale_factor
         self.info_nce_loss = InfoNCELoss(temperature=temperature)
     
     @jaxtyped(typechecker=typechecker)
@@ -95,17 +76,13 @@ class FeatureComparisonLoss(nn.Module):
         self,
         features_1: Float[torch.Tensor, "batch_size channels height width"],
         features_2: Float[torch.Tensor, "batch_size channels height width"],
-        transform_matrix_1: Float[torch.Tensor, "batch_size 2 3"],
-        transform_matrix_2: Float[torch.Tensor, "batch_size 2 3"]
+        transformed_coords_1: Float[torch.Tensor, "batch_size num_points 1 2"],
+        transformed_coords_2: Float[torch.Tensor, "batch_size num_points 1 2"],
+        mask1: Bool[torch.Tensor, "batch_size num_points 1"],
+        mask2: Bool[torch.Tensor, "batch_size num_points 1"],
     ):
-        sampled_features_1, transformed_coords_1 = self.sample_grids(transform_matrix_1, features_1)
-        sampled_features_2, transformed_coords_2 = self.sample_grids(transform_matrix_2, features_2)
-
-
-        mask1, mask2 = SSLImgProcUtils.get_masks(
-            transformed_coords_1=transformed_coords_1,
-            transformed_coords_2=transformed_coords_2
-        )
+        sampled_features_1 = self.sample_grids(transformed_coords_1, features_1)
+        sampled_features_2 = self.sample_grids(transformed_coords_2, features_2)
 
         loss = self.info_nce_loss(
             embeddings1 = sampled_features_1.flatten(0,1),
@@ -119,17 +96,8 @@ class FeatureComparisonLoss(nn.Module):
     @jaxtyped(typechecker=typechecker)
     def sample_grids(
         self,
-        transform_matrix: Float[torch.Tensor, "batch_size 2 3"],
+        transformed_coords: Float[torch.Tensor, "batch_size num_points 1 2"],
         features: Float[torch.Tensor,  "batch_size C H W"]
-    )->Tuple[
-        Float[torch.Tensor, "batch_size num_points C"],
-        Float[torch.Tensor, "batch_size num_points 1 2"]
-    ]:
-        coords = F.affine_grid(
-            transform_matrix,
-            features.shape,
-            align_corners=False
-        ).flatten(1,2).unsqueeze(2)
-
-        grid_sample = F.grid_sample(features, coords, align_corners=False)[:,:,:,0]
-        return F.normalize(grid_sample, dim = 1).transpose(1,2).contiguous(), coords.contiguous()
+    )->Float[torch.Tensor, "batch_size num_points C"]:
+        grid_sample = F.grid_sample(features, transformed_coords, align_corners=False)[:,:,:,0]
+        return F.normalize(grid_sample, dim = 1).transpose(1,2).contiguous()
