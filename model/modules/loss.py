@@ -16,11 +16,14 @@ class InfoNCELoss(nn.Module):
     @jaxtyped(typechecker=typechecker)
     def forward(
         self,
-        embeddings1: Float[torch.Tensor, "num_embeddings embed_dim"],
-        embeddings2: Float[torch.Tensor, "num_embeddings embed_dim"],
-        invalid_embeddings_mask1: Bool[torch.Tensor, "num_embeddings 1"] | None = None,
-        invalid_embeddings_mask2: Bool[torch.Tensor, "num_embeddings 1"] | None = None,
+        embeddings1: Float[torch.Tensor, "num_embeddings1 embed_dim"],
+        embeddings2: Float[torch.Tensor, "num_embeddings2 embed_dim"],
+        invalid_embeddings_mask1: Bool[torch.Tensor, "num_embeddings1 1"] | None = None,
+        invalid_embeddings_mask2: Bool[torch.Tensor, "num_embeddings2 1"] | None = None,
     ):
+        N1, _ = embeddings1.shape
+        N2, _ = embeddings2.shape
+        N = min(N1, N2)
         embeddings1 = F.normalize(embeddings1, dim = 1)
         embeddings2 = F.normalize(embeddings2, dim = 1)
         if invalid_embeddings_mask1 is None or invalid_embeddings_mask2 is None:
@@ -30,10 +33,9 @@ class InfoNCELoss(nn.Module):
 
         labels = self.get_labels(
             ignore_mask=ignore_mask,
-            num_labels = embeddings1.shape[0],
+            num_labels = N,
             device = embeddings1.device,
         )
-
 
         scores_ab = torch.matmul(embeddings1, embeddings2.transpose(0,1))/self.temperature
 
@@ -43,7 +45,7 @@ class InfoNCELoss(nn.Module):
             ).masked_fill_(
                 invalid_embeddings_mask2.transpose(0,1), -1e9
             )
-        loss = self.ce_loss(scores_ab, labels) + self.ce_loss(scores_ab.transpose(0,1), labels)
+        loss = self.ce_loss(scores_ab[:N], labels) + self.ce_loss(scores_ab.transpose(0,1)[:N], labels)
         return torch.nan_to_num(loss, nan=0.0)
 
     @jaxtyped(typechecker=typechecker)
@@ -61,6 +63,34 @@ class InfoNCELoss(nn.Module):
             labels.masked_fill_(ignore_mask, -100)
         return labels
 
+
+class InfoNCELossWithQueue(nn.Module):
+    def __init__(self, temperature: float, queue_size: int, embedding_dim: int):
+        super().__init__()
+        self.loss_fn = InfoNCELoss(temperature=temperature)
+        self.register_buffer("queue", torch.randn(queue_size, embedding_dim))
+        self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
+
+    @jaxtyped(typechecker=typechecker)
+    @torch.no_grad()
+    def _dequeue_and_enqueue(self, embeddings: Float[torch.Tensor, "batch_size embed_dim"]):
+        batch_size = embeddings.shape[0]
+        idx = (torch.arange(batch_size, device=self.queue.device) + self.queue_ptr.squeeze()) % self.queue.shape[0]
+        self.queue[idx] = embeddings
+        self.queue_ptr.copy_((self.queue_ptr + batch_size) % self.queue.shape[0])
+
+    def forward(
+        self,
+        embeddings1: Float[torch.Tensor, "num_embeddings embed_dim"],
+        embeddings2: Float[torch.Tensor, "num_embeddings embed_dim"]
+    ):
+        assert embeddings2.requires_grad == False, "embeddings2 must be non differentiable. Use embeddings1 for backpropagation."
+        self._dequeue_and_enqueue(embeddings2)
+        loss = self.loss_fn(
+            embeddings1=embeddings1,
+            embeddings2=self.queue,
+        )
+        return loss
 
 
 class FeatureComparisonLoss(nn.Module):

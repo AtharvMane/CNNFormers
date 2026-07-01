@@ -13,7 +13,7 @@ from transformers.backbone_utils import BackboneMixin
 from model.modules.attention import PatchUnPatchMHSA
 from model.modules.rms_norm import RMSNorm2d
 from model.config.cnnformer_config import CNNFormerConfig
-from model.modules.loss import FeatureComparisonLoss, InfoNCELoss
+from model.modules.loss import FeatureComparisonLoss, InfoNCELossWithQueue
 
 from dataclasses import dataclass
 
@@ -293,7 +293,11 @@ class CNNFormerResNetForPixelLevelRepresentationModeling(CNNFormerPretrainedMode
       )
     )
 
-    self.global_loss = InfoNCELoss(temperature=config.loss_temperature)
+    self.global_loss = InfoNCELossWithQueue(
+      temperature=config.loss_temperature,
+      queue_size=config.loss_queue_size,
+      embedding_dim=config.dense_ssl_projection_dim
+    )
     self.initialize_teacher()
     self.post_init()
 
